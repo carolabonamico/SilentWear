@@ -296,11 +296,11 @@ Contributions are also welcome for:
 If you use this work, we strongly encourage you to cite:
 
 ```bibtex
-@online{spacone_silentwear_26,
-  author = {Spacone, Giusy and Frey, Sebastian and Pollo, Giovanni and Burrello, Alessio and Pagliari, J. Daniele and Kartsch, Victor and Cossettini, Andrea and Benini, Luca},
-  title = {SilentWear: An Ultra-Low Power Wearable System for EMG-Based Silent Speech Recognition},
-  year = {2026},
-  url = {coming soon}
+@article{spacone2026silentwear,
+  title={SilentWear: an Ultra-Low Power Wearable System for EMG-based Silent Speech Recognition},
+  author={Spacone, Giusy and Frey, Sebastian and Pollo, Giovanni and Burrello, Alessio and Pagliari, Daniele Jahier and Kartsch, Victor and Cossettini, Andrea and Benini, Luca},
+  journal={arXiv preprint arXiv:2603.02847},
+  year={2026}
 }
 ```
 
