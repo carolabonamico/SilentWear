@@ -293,7 +293,8 @@ def run_ft_for(
 
             metrics_before = model_fine_tuner.test_zero_shot_acc()
             batch_loader = model_fine_tuner.model_master.trainer_manager.test_loader
-            metrics_without_ft, _, _ = evaluate_model(model_intersess, batch_loader)
+            strategy = model_fine_tuner.model_master.trainer_manager.strategy
+            metrics_without_ft, _, _ = evaluate_model(model_intersess, batch_loader, strategy)
 
             row = {
                 "subject": sub,

@@ -13,16 +13,17 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 from models.seeds import *
 from models.utils import compute_metrics
-from typing import Optional
-from pathlib import Path
+from typing import Dict, List, Optional
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
-import torch.nn as nn
+import torch
 import hashlib
+from models.strategies import TaskStrategy
 
 
 class TorchTrainer:
-    def __init__(self, estimator, df_train, df_val, df_test, train_cfg, label_col):
+    def __init__(self, estimator, df_train, df_val, df_test, train_cfg, label_col,
+                 strategy: TaskStrategy, train_label_map: Optional[Dict[int, str]] = None):
         self.model = estimator
         self.df_train = df_train
         self.train_loader = None
@@ -32,6 +33,11 @@ class TorchTrainer:
         self.test_loader = None
         self.train_cfg = train_cfg
         self.label_col = label_col
+        self.train_label_map = train_label_map or {}
+
+        if strategy is None:
+            raise ValueError("A TaskStrategy (e.g., CrossEntropyStrategy or CTCStrategy) must be explicitly provided.")
+        self.strategy = strategy
 
     def create_dataloader_from_df(
         self, df, batch_size=32, shuffle=False, num_workers=0  # we shuffle outside
@@ -91,7 +97,6 @@ class TorchTrainer:
                 mode=scheduler_cfg.get("mode", "min"),
                 factor=float(scheduler_cfg.get("factor", 0.1)),
                 patience=int(scheduler_cfg.get("patience", 10)),
-                verbose=bool(scheduler_cfg.get("verbose", True)),
             )
 
         raise ValueError(f"Unknown scheduler: {name}")
@@ -106,17 +111,13 @@ class TorchTrainer:
     ):
 
         if torch.cuda.is_available():
-            device = "cuda"
-            torch.device("cuda")
+            device = torch.device("cuda")
             print("Running on cuda")
             print(torch.cuda.device_count())
             print(torch.cuda.get_device_name(0))
         else:
-            torch.device("cpu")
-            device = "cpu"
+            device = torch.device("cpu")
             print("Running on CPU")
-
-        criterion = nn.CrossEntropyLoss()
 
         # ---- Read config ----
         num_epochs = int(train_cfg.get("num_epochs", 50))
@@ -131,7 +132,7 @@ class TorchTrainer:
         opt_name = str(optimizer_cfg.get("name", "adam")).lower()
 
         lr = float(optimizer_cfg["lr"])
-        weight_decay = float(train_cfg["weight_decay"])
+        weight_decay = float(train_cfg.get("weight_decay", 0.0))
         # betas = optimizer_cfg.get("betas", (0.9, 0.999))
 
         print("Model will be trained for:", num_epochs, "epochs")
@@ -140,6 +141,9 @@ class TorchTrainer:
         print("Set optimizer", opt_name, "|lr:", lr, "|wd:", weight_decay)
         scheduler_cfg = train_cfg.get("scheduler", None)
         print("Set scheduler:", scheduler_cfg)
+        grad_clip_norm = train_cfg.get("grad_clip_norm", None)
+        if grad_clip_norm is not None:
+            print("Set gradient clipping max_norm:", float(grad_clip_norm))
 
         # ----- Optimizer -----
         if opt_name == "adamw":
@@ -208,12 +212,14 @@ class TorchTrainer:
 
             for x, y in trainloader:
                 x = x.to(device)
-                y = y.to(device)
+                y = y.to(device).long()
 
                 optimizer.zero_grad()
                 outputs = model(x)
-                loss = criterion(outputs, y)
-                loss.backward()
+                loss = self.strategy.compute_loss(outputs, y, device)
+                self.strategy.backward(loss)
+                if grad_clip_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(grad_clip_norm))
                 optimizer.step()
 
                 running_loss_train += loss.item()
@@ -234,10 +240,10 @@ class TorchTrainer:
             with torch.no_grad():
                 for x, y in valoader:
                     x = x.to(device)
-                    y = y.to(device)
+                    y = y.to(device).long()
 
                     outputs = model(x)
-                    loss = criterion(outputs, y)
+                    loss = self.strategy.compute_loss(outputs, y, device)
 
                     running_loss_val += loss.item()
                     val_batches += 1
@@ -323,7 +329,7 @@ class TorchTrainer:
         """
 
         self.train_loader = self.create_dataloader_from_df(self.df_train)
-        self.val_loader = self.create_dataloader_from_df(self.df_val)
+        self.valoader = self.create_dataloader_from_df(self.df_val)
         self.test_loader = self.create_dataloader_from_df(self.df_test)
         # Check that splits are truly different
         self.check_data_splits()
@@ -340,39 +346,17 @@ class TorchTrainer:
             model_path = None
 
         self.model = self.train_loop(
-            self.model, self.train_loader, self.val_loader, self.train_cfg, model_path
+            self.model, self.train_loader, self.valoader, self.train_cfg, model_path
         )
         return self.model
 
-    def evaluate(self):
-
-        model = self.model
-        device = next(model.parameters()).device
-        model.eval()
-
-        all_targets = []
-        all_preds = []
-        all_logits = []
-
-        with torch.no_grad():
-            for inputs, targets in self.test_loader:
-                inputs = inputs.to(device)
-                targets = targets.to(device)
-
-                outputs = model(inputs)  # logits: (batch_size, num_classes)
-                preds = outputs.argmax(dim=1)  # predicted class index
-
-                all_targets.append(targets.cpu())
-                all_preds.append(preds.cpu())
-                all_logits.append(outputs.cpu())
-
-        # Concatenate batches
-        y_true = torch.cat(all_targets).numpy()
-        y_pred = torch.cat(all_preds).numpy()
-
-        metrics, y_true, y_pred = compute_metrics(y_true, y_pred)
-
-        return metrics, y_true, y_pred
+    def evaluate(self, test_loader=None):
+        """
+        Evaluates the model on the test set and returns metrics, true labels, and predicted labels.
+        If test_loader is provided, it will be used instead of the default test_loader created from df_test.
+        """
+        loader = test_loader if test_loader is not None else self.test_loader
+        return evaluate_model(self.model, loader, self.strategy)
 
     def check_data_splits(self):
         """
@@ -466,9 +450,13 @@ class TorchTrainer:
 ################################################### Standalone functions ########################
 
 
-def evaluate_model(model, test_loader):
+def evaluate_model(model, test_loader, strategy: TaskStrategy):
+    """
+    Compute predictions and metrics on the test set using the provided model, test_loader, and strategy.
+    """
+    if strategy is None:
+        raise ValueError("A TaskStrategy must be explicitly provided for evaluation.")
 
-    model = model
     device = next(model.parameters()).device
     model.eval()
 

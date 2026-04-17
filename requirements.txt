@@ -10,8 +10,9 @@ pandas==2.3.3
 scikit_learn==1.7.2
 torch==2.5.1
 torchsummary==1.5.1
-torchinfo == 1.8.0
-tables == 3.10.2
-PyWavelets == 1.8.0
-PyYAML == 6.0.3
-umap-learn == 0.5.11
+torchinfo==1.8.0
+tables==3.10.2
+PyWavelets==1.8.0
+PyYAML==6.0.3
+umap-learn==0.5.11
+unidecode==1.3.6

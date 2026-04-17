@@ -24,6 +24,8 @@ from utils.I_data_preparation.experimental_config import ORIGINAL_LABELS, FS
 from models.models_factory import ModelSpec, build_model_from_spec
 from models.SklearnTrainer import *
 from models.TorchTrainer import *
+from models.strategies import CrossEntropyStrategy, CTCStrategy
+from utils.I_data_preparation.ctc_text_mapper import CTCTextMapper, DEFAULT_BLANK_ID
 import re
 from offline_experiments.general_utils import (
     feature_names_to_consider,
@@ -242,6 +244,9 @@ class Model_Master:
 
             cols_train = [ch_dict[ch] for ch in self.channel_order]
 
+        else:
+            raise ValueError(f"Unknown model kind: {self.kind}")
+
         self.data_col_to_consider = cols_train
         # print("Training Columns will be: ")
         # print(self.data_col_to_consider)
@@ -289,6 +294,34 @@ class Model_Master:
         # for _, row in unique_pairs.iterrows():
         #     print(f"  {row['Label_train']} → {row['Label_str']}")
 
+    @staticmethod
+    def _get_loss_name(train_cfg: dict) -> str:
+        """Validate and return the loss name from training config."""
+        if "loss_name" not in train_cfg:
+            raise KeyError(
+                "Missing config key: model.kwargs.train_cfg.loss_name. "
+                "Set it explicitly (e.g., 'ctc' or 'cross_entropy')."
+            )
+        loss_name = str(train_cfg["loss_name"]).lower().strip()
+        valid_losses = {"ctc", "cross_entropy"}
+        if loss_name not in valid_losses:
+            raise ValueError(
+                f"Unsupported loss_name='{loss_name}'. Supported values are: {sorted(valid_losses)}"
+            )
+        return loss_name
+
+    def _build_ctc_mapper(self, train_cfg: dict) -> CTCTextMapper:
+        """Build the CTC text mapper."""
+        ctc_cfg = train_cfg.get("ctc", {}) or {}
+        lexicon_words = train_cfg.get("vocab_words") or ctc_cfg.get("vocab_words") or []
+
+        return CTCTextMapper(
+            lexicon_path=ctc_cfg.get("lexicon_path", "lexicon.txt"),
+            lexicon_words=lexicon_words,
+            train_label_map=self.train_label_map,
+            blank_id=ctc_cfg.get("blank_id", DEFAULT_BLANK_ID),
+        )
+
     def register_model(self) -> None:
         """
         Instantiate model based on ModelSpec + context.
@@ -311,6 +344,16 @@ class Model_Master:
             "num_classes": self.num_classes,
         }
 
+        train_cfg = self.model_config["model"]["kwargs"]["train_cfg"]
+        loss_name = self._get_loss_name(train_cfg)
+        text_mapper = None
+
+        # CTC logits are character-level: output dimension must match token vocab size.
+        if loss_name == "ctc":
+            text_mapper = self._build_ctc_mapper(train_cfg)
+            ctx["num_classes"] = len(text_mapper.char_to_int)
+            print("CTC token vocab size (without blank):", ctx["num_classes"])
+
         self.model = build_model_from_spec(spec, ctx)
 
         # move to device only for DL models
@@ -332,13 +375,24 @@ class Model_Master:
                 label_col="Label_train",
             )
         elif self.kind == "dl":
+            if loss_name == "ctc":
+                ctc_cfg = train_cfg.get("ctc", {}) or {}
+                strategy = CTCStrategy(
+                    text_mapper,
+                    allow_nearest_word_match=bool(ctc_cfg.get("allow_nearest_word_match", True)),
+                )
+            else:
+                strategy = CrossEntropyStrategy()
+
             self.trainer_manager = TorchTrainer(
                 estimator=self.model,
                 df_train=self.df_train[cols] if not self.df_train.empty else None,
                 df_val=self.df_val[cols] if not self.df_val.empty else None,
                 df_test=self.df_test[cols] if not self.df_test.empty else None,
-                train_cfg=self.model_config["model"]["kwargs"]["train_cfg"],
+                train_cfg=train_cfg,
                 label_col="Label_train",
+                train_label_map=self.train_label_map,
+                strategy=strategy,
             )
 
         print("Model and Trainer Initialized!")
@@ -347,10 +401,13 @@ class Model_Master:
         """
         Main Model Trainer
         """
+        if self.trainer_manager is None:
+            raise RuntimeError("Trainer not initialized. Call register_model() first.")
+
         self.model = self.trainer_manager.fit(save_model_path)
 
         if test:
             metrics, y_true, y_pred = self.trainer_manager.evaluate()
+            return self.model, metrics, y_true, y_pred
 
-        # return the model
-        return self.model, metrics, y_true, y_pred
+        return self.model, None, None, None
