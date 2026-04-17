@@ -7,32 +7,13 @@ from __future__ import annotations
 import os
 from typing import Dict, List, Tuple
 
+import editdistance
 import torch
 
 from utils.I_data_preparation.text_transform import CTCTextTransform
 
 DEFAULT_BLANK_ID = 0
 
-
-def _levenshtein_distance(source: str, target: str) -> int:
-    """Compute Levenshtein edit distance with a compact dynamic-programming routine."""
-    if source == target:
-        return 0
-    if not source:
-        return len(target)
-    if not target:
-        return len(source)
-
-    prev = list(range(len(target) + 1))
-    for i, source_char in enumerate(source, start=1):
-        curr = [i]
-        for j, target_char in enumerate(target, start=1):
-            insert_cost = curr[j - 1] + 1
-            delete_cost = prev[j] + 1
-            replace_cost = prev[j - 1] + (0 if source_char == target_char else 1)
-            curr.append(min(insert_cost, delete_cost, replace_cost))
-        prev = curr
-    return prev[-1]
 
 class CTCTextMapper(CTCTextTransform):
     """Map class labels to CTC token targets and decode token IDs back to words."""
@@ -44,7 +25,6 @@ class CTCTextMapper(CTCTextTransform):
         train_label_map: Dict[int, str] | None = None,
         blank_id: int = DEFAULT_BLANK_ID,
     ):
-
         self.blank_id = int(blank_id)
         self.train_label_map = train_label_map or {}
 
@@ -112,8 +92,7 @@ class CTCTextMapper(CTCTextTransform):
                     collapsed.append(token_id)
                 prev = token_id
 
-            decoded = self.clean_text(self.int_to_text(collapsed))
-            words.append(decoded)
+            words.append(self.clean_text(self.int_to_text(collapsed)))
 
         return words
 
@@ -121,16 +100,7 @@ class CTCTextMapper(CTCTextTransform):
         """Find nearest train label word by edit distance for lexicon-constrained decoding."""
         if not word or not self.word_to_label_map:
             return None
-
-        best_word = None
-        best_distance = None
-        for candidate in self.word_to_label_map.keys():
-            distance = _levenshtein_distance(word, candidate)
-            if best_distance is None or distance < best_distance:
-                best_word = candidate
-                best_distance = distance
-
-        return best_word
+        return min(self.word_to_label_map, key=lambda candidate: editdistance.eval(word, candidate))
 
     def words_to_label_int(
         self, words: List[str], allow_nearest: bool = True
