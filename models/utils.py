@@ -58,13 +58,11 @@ def compute_metrics(y_true, y_pred):
         "confusion_matrix": cm,
     }
 
-    print("=== Test Metrics ===")
-    print(f"Accuracy        : UNBALANCED {acc:.2f}        - BALANCED {balanced_acc:.2f}")
-    print(
-        f"Precision       : MACRO      {precision_macro:.2f}  - WEIGHTED {precision_weighted:.2f}"
-    )
-    print(f"Recall          : MACRO      {recall_macro:.2f}     - WEIGHTED {recall_weighted:.2f}")
-    print(f"F1-score        : MACRO      {f1_macro:.2f}         - WEIGHTED {f1_weighted:.2f}")
+    print("\n=== Test Metrics ===")
+    print(f"{ 'Accuracy':<15}: UNBALANCED {acc:6.2f}  - BALANCED {balanced_acc:6.2f}")
+    print(f"{ 'Precision':<15}: MACRO      {precision_macro:6.2f}  - WEIGHTED {precision_weighted:6.2f}")
+    print(f"{ 'Recall':<15}: MACRO      {recall_macro:6.2f}  - WEIGHTED {recall_weighted:6.2f}")
+    print(f"{ 'F1-score':<15}: MACRO      {f1_macro:6.2f}  - WEIGHTED {f1_weighted:6.2f}")
 
     # print(cm)
 

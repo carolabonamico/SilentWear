@@ -175,8 +175,10 @@ class TorchTrainer:
                 x = x.to(device)
                 y = y.to(device).long()
                 out = model(x)
-                train_preds.extend(torch.argmax(out, dim=1).cpu().numpy())
-                train_tgts.extend(y.cpu().numpy())
+                preds = self.strategy.predict_labels(out)
+                # ensure list-like for extend
+                train_preds.extend(preds.tolist() if hasattr(preds, "tolist") else list(preds))
+                train_tgts.extend(y.cpu().numpy().tolist())
             train_acc_0 = np.mean(np.array(train_preds) == np.array(train_tgts))
 
             # Validation accuracy before training
@@ -185,8 +187,9 @@ class TorchTrainer:
                 x = x.to(device)
                 y = y.to(device).long()
                 out = model(x)
-                val_preds.extend(torch.argmax(out, dim=1).cpu().numpy())
-                val_tgts.extend(y.cpu().numpy())
+                preds = self.strategy.predict_labels(out)
+                val_preds.extend(preds.tolist() if hasattr(preds, "tolist") else list(preds))
+                val_tgts.extend(y.cpu().numpy().tolist())
             val_acc_0 = np.mean(np.array(val_preds) == np.array(val_tgts))
 
         print(f"PRE-TRAIN | TRAIN ACC: {train_acc_0:.3f} | VAL ACC: {val_acc_0:.3f}")
@@ -224,8 +227,9 @@ class TorchTrainer:
 
                 running_loss_train += loss.item()
                 train_batches += 1
-                train_predictions.extend(torch.argmax(outputs, dim=1).cpu().numpy())
-                train_targets.extend(y.cpu().numpy())
+                preds = self.strategy.predict_labels(outputs)
+                train_predictions.extend(preds.tolist() if hasattr(preds, "tolist") else list(preds))
+                train_targets.extend(y.cpu().numpy().tolist())
             train_accuracy = np.mean(np.array(train_predictions) == np.array(train_targets))
             avg_train_loss = running_loss_train / max(1, train_batches)
             train_accs.append(train_accuracy)
@@ -249,8 +253,9 @@ class TorchTrainer:
                     val_batches += 1
 
                     # Collect predictions and targets for later analysis
-                    val_predictions.extend(torch.argmax(outputs, dim=1).cpu().numpy())
-                    val_targets.extend(y.cpu().numpy())
+                    preds = self.strategy.predict_labels(outputs)
+                    val_predictions.extend(preds.tolist() if hasattr(preds, "tolist") else list(preds))
+                    val_targets.extend(y.cpu().numpy().tolist())
             # compute accuracy on the validation set
             val_accuracy = np.mean(np.array(val_predictions) == np.array(val_targets))
             val_accs.append(val_accuracy)
@@ -467,18 +472,37 @@ def evaluate_model(model, test_loader, strategy: TaskStrategy):
     with torch.no_grad():
         for inputs, targets in test_loader:
             inputs = inputs.to(device)
-            targets = targets.to(device)
+            targets = targets.to(device).long()
 
-            outputs = model(inputs)  # logits: (batch_size, num_classes)
-            preds = outputs.argmax(dim=1)  # predicted class index
+            outputs = model(inputs)
 
-            all_targets.append(targets.cpu())
-            all_preds.append(preds.cpu())
-            all_logits.append(outputs.cpu())
+            # Use strategy to obtain final predicted labels (handles CE and CTC)
+            preds_np = strategy.predict_labels(outputs)
 
-    # Concatenate batches
-    y_true = torch.cat(all_targets).numpy()
-    y_pred = torch.cat(all_preds).numpy()
+            # Normalize to numpy arrays
+            if isinstance(preds_np, np.ndarray):
+                batch_preds = preds_np
+            else:
+                try:
+                    batch_preds = np.asarray(preds_np)
+                except Exception:
+                    # Fall back to converting torch tensors
+                    batch_preds = preds_np.detach().cpu().numpy()
+
+            all_preds.append(batch_preds)
+            all_targets.append(targets.cpu().numpy())
+            try:
+                all_logits.append(outputs.cpu().numpy())
+            except Exception:
+                # outputs may be a tuple/list; ignore logits if not convertible
+                pass
+
+    # Concatenate batches along first axis
+    if len(all_targets) == 0:
+        return None, None, None
+
+    y_true = np.concatenate(all_targets, axis=0)
+    y_pred = np.concatenate(all_preds, axis=0)
 
     metrics, y_true, y_pred = compute_metrics(y_true, y_pred)
 

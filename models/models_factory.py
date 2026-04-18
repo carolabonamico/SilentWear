@@ -261,7 +261,7 @@ def emg_transformer(
     """
     _ = num_samples
     try:
-        from models.cnn_architectures.EMGTranformer import EMGTransformer
+        from models.cnn_architectures.EMGTransformer import EMGTransformer
     except ImportError as exc:
         raise ImportError(
             "EMGTransformer not found. Make sure the architecture is implemented and importable."

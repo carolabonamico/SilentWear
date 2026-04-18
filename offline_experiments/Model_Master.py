@@ -344,15 +344,20 @@ class Model_Master:
             "num_classes": self.num_classes,
         }
 
-        train_cfg = self.model_config["model"]["kwargs"]["train_cfg"]
-        loss_name = self._get_loss_name(train_cfg)
+        text_mapper = None        
+        train_cfg = None
+        loss_name = None
         text_mapper = None
+        
+        if self.kind == "dl":
+            train_cfg = self.model_config["model"]["kwargs"]["train_cfg"]
+            loss_name = self._get_loss_name(train_cfg)
 
-        # CTC logits are character-level: output dimension must match token vocab size.
-        if loss_name == "ctc":
-            text_mapper = self._build_ctc_mapper(train_cfg)
-            ctx["num_classes"] = len(text_mapper.char_to_int)
-            print("CTC token vocab size (without blank):", ctx["num_classes"])
+            # CTC logits are character-level: output dimension must match token vocab size.
+            if loss_name == "ctc":
+                text_mapper = self._build_ctc_mapper(train_cfg)
+                ctx["num_classes"] = len(text_mapper.char_to_int)
+                print("CTC token vocab size (without blank):", ctx["num_classes"])
 
         self.model = build_model_from_spec(spec, ctx)
 
