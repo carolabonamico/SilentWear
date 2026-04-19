@@ -166,6 +166,13 @@ class TorchTrainer:
         # ----- Scheduler (optional) -----
         scheduler = self.build_scheduler(optimizer, scheduler_cfg, num_epochs)
 
+        # Warmup configuration: linearly scale LR during the first N epochs.
+        # If `warmup_epochs` is set in `train_cfg`, we interpolate from 0->base_lr.
+        warmup_epochs = int(train_cfg.get("warmup_epochs", 0))
+        base_lrs = [pg["lr"] for pg in optimizer.param_groups]
+        if warmup_epochs > 0:
+            print(f"Warmup for {warmup_epochs} epochs; base_lrs: {base_lrs}")
+
         # -------- Zero-epoch (before training) evaluation --------
         model.eval()
         with torch.no_grad():
@@ -207,6 +214,11 @@ class TorchTrainer:
         val_accs = []
         for epoch in range(num_epochs):
             # -------- Train --------
+            # Warmup: scale learning rate linearly during initial epochs
+            if warmup_epochs > 0 and epoch < warmup_epochs:
+                warmup_scale = float(epoch + 1) / float(warmup_epochs)
+                for i, pg in enumerate(optimizer.param_groups):
+                    pg["lr"] = base_lrs[i] * warmup_scale
             model.train()
             running_loss_train = 0.0
             train_batches = 0

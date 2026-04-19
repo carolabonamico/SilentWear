@@ -4,7 +4,11 @@ model:
   kind: dl
   name: emg_transformer
   kwargs:
+    attn_drop: 0.1
+    proj_drop: 0.1
+
     train_cfg:
+      warmup_epochs: 5
       num_epochs: 200
       lr: 0.0003
       early_stop_patience: 20

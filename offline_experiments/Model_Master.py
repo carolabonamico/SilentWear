@@ -22,6 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from utils.I_data_preparation.experimental_config import ORIGINAL_LABELS, FS
 from models.models_factory import ModelSpec, build_model_from_spec
+from models.utils import resolve_num_classes_from_cfg
 from models.SklearnTrainer import *
 from models.TorchTrainer import *
 from models.strategies import CrossEntropyStrategy, CTCStrategy
@@ -355,9 +356,12 @@ class Model_Master:
 
             # CTC logits are character-level: output dimension must match token vocab size.
             if loss_name == "ctc":
+                ctx["num_classes"] = resolve_num_classes_from_cfg(
+                    self.base_config,
+                    self.model_config,
+                    train_label_map=self.train_label_map,
+                )
                 text_mapper = self._build_ctc_mapper(train_cfg)
-                ctx["num_classes"] = len(text_mapper.char_to_int)
-                print("CTC token vocab size (without blank):", ctx["num_classes"])
 
         self.model = build_model_from_spec(spec, ctx)
 
