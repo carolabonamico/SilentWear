@@ -488,7 +488,6 @@ def main():
             title=f"{args.model_name} | {cond}",
             save_path=out_fig,
         )
-        print(f"[SAVED] {out_fig}")
 
         # Print max stats (average across subjects)
         unique_windows = windows_ms
@@ -516,6 +515,7 @@ def main():
         print(f"Accuracy at best ITR:      {acc_at_best_itr:.2f}%")
         reduction = (((best_acc - acc_at_best_itr) / best_acc)) * 100
         print(f"Accuracy reduction:        {reduction:.2f}%")
+        print(f"[SAVED] {out_fig}")
 
 
 if __name__ == "__main__":
