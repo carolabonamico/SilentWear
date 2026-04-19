@@ -141,6 +141,7 @@ def build_model(
     """
     ctx = ctx or {}
     model_kwargs = model_kwargs or {}
+    obj = None
 
     # 1) choose factory
     if factory is None:
@@ -170,6 +171,9 @@ def build_model(
 
     if not callable(factory):
         raise TypeError("Factory must be callable.")
+
+    if obj is None:
+        obj = factory(**ctx, **model_kwargs)
 
     return obj
 
@@ -235,4 +239,44 @@ def speechnet(
         T=num_samples,
         output_classes=num_classes,
         **model_kwargs,  # <-- passes blocks_config, dropout, etc.
+    )
+
+
+@register_dl_model("emg_transformer")
+def emg_transformer(
+    *, 
+    num_channels: int, 
+    num_samples: int,
+    num_classes: int, 
+    **model_kwargs
+    ) -> nn.Module:
+
+    """
+    Factory for TinyMyo.
+    
+    Required ctx keys:
+      - num_channels
+            - num_samples
+      - num_classes
+    """
+    _ = num_samples
+    try:
+        from models.cnn_architectures.EMGTransformer import EMGTransformer
+    except ImportError as exc:
+        raise ImportError(
+            "EMGTransformer not found. Make sure the architecture is implemented and importable."
+        ) from exc
+
+    # train_cfg is consumed by the trainer, not by the model constructor.
+    model_kwargs = dict(model_kwargs)
+    train_cfg = model_kwargs.get("train_cfg", {})
+    loss_name = str(train_cfg.get("loss_name", "")).lower().strip() if isinstance(train_cfg, dict) else ""
+    use_ctc_blank = loss_name == "ctc"
+    model_kwargs.pop("train_cfg", None)
+
+    return EMGTransformer(
+        num_features=num_channels,
+        num_outs=num_classes + (1 if use_ctc_blank else 0),
+        in_chans=num_channels,
+        **model_kwargs,
     )

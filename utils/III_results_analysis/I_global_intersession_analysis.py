@@ -257,6 +257,20 @@ def _infer_display_labels(run_cfg_path: Path, fallback_n: int) -> List[str]:
 
     return [str(i) for i in range(fallback_n)]
 
+def _get_display_labels(run_cfg_path: Path, n_classes: int) -> List[str]:
+    """
+    Extracts display labels for the confusion matrix.
+    """
+    labels = _infer_display_labels(run_cfg_path, fallback_n=n_classes)
+    
+    if len(labels) != n_classes:
+        labels = list(ORIGINAL_LABELS.values())
+        
+        # Handle the specific case where the 'rest' class was excluded during evaluation
+        if len(labels) == n_classes + 1 and "rest" in labels:
+            labels.remove("rest")
+            
+    return labels
 
 # ----------------------------- main analysis -----------------------------
 
@@ -430,7 +444,7 @@ def main():
             tables_dir / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}.csv"
         )
         summary_subjects.to_csv(out_csv, index=False)
-        print(summary_subjects[["subject", "mean_std_perc"]])
+        print(summary_subjects[["subject", "model_run", "mean_std_perc"]])
         print(f"[SAVED] {out_csv}")
 
         # Confusion matrices (2x2)
@@ -471,9 +485,9 @@ def main():
                     continue
 
                 cm_mean, cm_std = mean_std_confusion_matrices(df[cm_col])
-
-                disp_labels = list(ORIGINAL_LABELS.values())
-                print(disp_labels)
+                
+                n_classes = int(cm_mean.shape[0])
+                disp_labels = _get_display_labels(r.run_cfg_json, n_classes)
 
                 disp = ConfusionMatrixDisplay(confusion_matrix=cm_mean, display_labels=disp_labels)
                 disp.plot(ax=ax, cmap=plt.cm.Blues, colorbar=False, include_values=False)

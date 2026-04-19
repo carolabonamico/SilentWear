@@ -58,13 +58,11 @@ def compute_metrics(y_true, y_pred):
         "confusion_matrix": cm,
     }
 
-    print("=== Test Metrics ===")
-    print(f"Accuracy        : UNBALANCED {acc:.2f}        - BALANCED {balanced_acc:.2f}")
-    print(
-        f"Precision       : MACRO      {precision_macro:.2f}  - WEIGHTED {precision_weighted:.2f}"
-    )
-    print(f"Recall          : MACRO      {recall_macro:.2f}     - WEIGHTED {recall_weighted:.2f}")
-    print(f"F1-score        : MACRO      {f1_macro:.2f}         - WEIGHTED {f1_weighted:.2f}")
+    print("\n=== Test Metrics ===")
+    print(f"{ 'Accuracy':<15}: UNBALANCED {acc:6.2f}  - BALANCED {balanced_acc:6.2f}")
+    print(f"{ 'Precision':<15}: MACRO      {precision_macro:6.2f}  - WEIGHTED {precision_weighted:6.2f}")
+    print(f"{ 'Recall':<15}: MACRO      {recall_macro:6.2f}  - WEIGHTED {recall_weighted:6.2f}")
+    print(f"{ 'F1-score':<15}: MACRO      {f1_macro:6.2f}  - WEIGHTED {f1_weighted:6.2f}")
 
     # print(cm)
 
@@ -101,8 +99,38 @@ def check_weights_updated(before_state_dict, model_after):
     return changed
 
 
+def resolve_num_classes_from_cfg(
+    base_cfg: dict, model_cfg: dict, train_label_map: dict | None = None
+) -> int:
+    """Resolve output classes from config."""
+    include_rest = bool(base_cfg["experiment"].get("include_rest", False))
+    num_classes = 9 if include_rest else 8
+
+    model_section = model_cfg.get("model", {}) or {}
+    kwargs = model_section.get("kwargs", {}) or {}
+    train_cfg = kwargs.get("train_cfg", {}) or {}
+    loss_name = str(train_cfg.get("loss_name", "")).lower().strip()
+
+    if model_section.get("kind") == "dl" and loss_name == "ctc":
+        # CTC output size is based on token vocabulary.
+        from utils.I_data_preparation.ctc_text_mapper import CTCTextMapper, DEFAULT_BLANK_ID
+
+        ctc_cfg = train_cfg.get("ctc", {}) or {}
+        lexicon_words = train_cfg.get("vocab_words") or ctc_cfg.get("vocab_words") or []
+        mapper = CTCTextMapper(
+            lexicon_path=ctc_cfg.get("lexicon_path", "lexicon.txt"),
+            lexicon_words=lexicon_words,
+            train_label_map=train_label_map or {},
+            blank_id=ctc_cfg.get("blank_id", DEFAULT_BLANK_ID),
+        )
+        num_classes = len(mapper.char_to_int)
+        print("CTC token vocab size (without blank):", num_classes)
+
+    return num_classes
+
+
 def load_pretrained_model(base_cfg, model_cfg, pretrained_model_path):
-    num_classes = 9 if base_cfg["experiment"]["include_rest"] else 8
+    num_classes = resolve_num_classes_from_cfg(base_cfg, model_cfg)
 
     spec = ModelSpec(
         kind=model_cfg["model"]["kind"],

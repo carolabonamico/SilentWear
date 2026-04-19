@@ -67,6 +67,26 @@ def build_ft_directory(model_base_folder: Path) -> Path:
     raise RuntimeError("Could not find a free ft_config_<N> directory name.")
 
 
+def _pick_ft_schedule(train_cfg: dict, ft_cfg: dict) -> Tuple[float, int]:
+    """Select lr/epochs for FT while supporting optional CTC-specific keys."""
+    loss_name = str(train_cfg.get("loss_name", "")).lower().strip()
+    is_ctc = loss_name == "ctc"
+
+    if is_ctc and ("ft_lr_ctc" in ft_cfg or "num_ft_epochs_ctc" in ft_cfg):
+        lr_key = "ft_lr_ctc"
+        epochs_key = "num_ft_epochs_ctc"
+    else:
+        lr_key = "ft_lr"
+        epochs_key = "num_ft_epochs"
+
+    lr_default = float(train_cfg.get("lr", 1e-3))
+    epochs_default = int(train_cfg.get("num_epochs", 50))
+
+    lr_new = float(ft_cfg.get(lr_key, ft_cfg.get("ft_lr", lr_default)))
+    num_epochs_new = int(ft_cfg.get(epochs_key, ft_cfg.get("num_ft_epochs", epochs_default)))
+    return lr_new, num_epochs_new
+
+
 def check_base_models_exist(
     model_base_folder: Path,
     model_to_ft_name: Optional[str] = None,
@@ -106,24 +126,22 @@ def check_base_models_exist(
 def build_ft_model_cfg(model_config: dict, ft_cfg: dict, save_path: Optional[Path] = None) -> dict:
     """Build a fine-tuning model config starting from base model_cfg."""
     model_config = copy.deepcopy(model_config)
-    train_cfg = model_config["model"]["kwargs"]["train_cfg"]
+    train_cfg = copy.deepcopy(model_config["model"]["kwargs"]["train_cfg"])
 
-    optimizer_old = train_cfg["optimizer_cfg"]
-    lr_new = float(ft_cfg["ft_lr"])
-    optimizer_cfg_new = {"lr": lr_new, "name": optimizer_old["name"]}
+    lr_new, num_epochs_new = _pick_ft_schedule(train_cfg, ft_cfg)
 
-    scheduler = train_cfg.get("scheduler", None)
-    weight_decay = train_cfg.get("weight_decay", 0)
-    es_patience = train_cfg.get("early_stop_patience", 10)
+    optimizer_old = copy.deepcopy(train_cfg.get("optimizer_cfg", {}))
+    optimizer_name = optimizer_old.get("name", "adam")
+    optimizer_cfg_new = {**optimizer_old, "lr": lr_new, "name": optimizer_name}
 
-    model_config["model"]["kwargs"]["train_cfg"] = {
-        "lr": lr_new,
-        "num_epochs": int(ft_cfg["num_ft_epochs"]),
-        "optimizer_cfg": optimizer_cfg_new,
-        "scheduler": scheduler,
-        "weight_decay": weight_decay,
-        "early_stop_patience": es_patience,
-    }
+    train_cfg["lr"] = lr_new
+    train_cfg["num_epochs"] = int(num_epochs_new)
+    train_cfg["optimizer_cfg"] = optimizer_cfg_new
+    train_cfg["scheduler"] = train_cfg.get("scheduler", None)
+    train_cfg["weight_decay"] = train_cfg.get("weight_decay", 0)
+    train_cfg["early_stop_patience"] = train_cfg.get("early_stop_patience", 10)
+
+    model_config["model"]["kwargs"]["train_cfg"] = train_cfg
 
     if save_path is not None:
         with open(save_path, "w") as f:
@@ -293,7 +311,8 @@ def run_ft_for(
 
             metrics_before = model_fine_tuner.test_zero_shot_acc()
             batch_loader = model_fine_tuner.model_master.trainer_manager.test_loader
-            metrics_without_ft, _, _ = evaluate_model(model_intersess, batch_loader)
+            strategy = model_fine_tuner.model_master.trainer_manager.strategy
+            metrics_without_ft, _, _ = evaluate_model(model_intersess, batch_loader, strategy)
 
             row = {
                 "subject": sub,
