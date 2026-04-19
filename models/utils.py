@@ -102,7 +102,7 @@ def check_weights_updated(before_state_dict, model_after):
 def resolve_num_classes_from_cfg(
     base_cfg: dict, model_cfg: dict, train_label_map: dict | None = None
 ) -> int:
-    """Resolve output classes from config, handling both gesture-class and CTC setups."""
+    """Resolve output classes from config."""
     include_rest = bool(base_cfg["experiment"].get("include_rest", False))
     num_classes = 9 if include_rest else 8
 

@@ -444,7 +444,7 @@ def main():
             tables_dir / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}.csv"
         )
         summary_subjects.to_csv(out_csv, index=False)
-        print(summary_subjects[["subject", "mean_std_perc"]])
+        print(summary_subjects[["subject", "model_run", "mean_std_perc"]])
         print(f"[SAVED] {out_csv}")
 
         # Confusion matrices (2x2)

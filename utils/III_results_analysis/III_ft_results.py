@@ -723,7 +723,8 @@ def main():
     fig_save_folder = artifacts_dir / "figures"
     res_save_folder.mkdir(parents=True, exist_ok=True)
     fig_save_folder.mkdir(parents=True, exist_ok=True)
-
+    
+    print()
     for condition in args.conditions:
         print("Condition:", condition)
         # ---- FT ----
@@ -763,7 +764,7 @@ def main():
             show_no_ft=True,
             save_path=fig_save_folder / f"avg_{condition}_{args.model_name}_{model_name_id}.pdf",
         )
-        print("\n\n")
+        print()
 
 
 if __name__ == "__main__":
