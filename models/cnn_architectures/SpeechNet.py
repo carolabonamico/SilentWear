@@ -41,6 +41,7 @@ class SpeechNet(nn.Module):
         blocks_config: Optional[List[Dict[str, Any]]] = None,
         p_dropout: float = 0.0,
         global_pool: str = "avg",  # "avg" or "max"
+        ctc_mode: bool = False,
         **kwargs,
     ):
 
@@ -109,6 +110,7 @@ class SpeechNet(nn.Module):
             raise ValueError("global_pool must be 'avg' or 'max'")
 
         self.dropout = nn.Dropout(p_dropout) if p_dropout > 0 else nn.Identity()
+        self.ctc_mode = bool(ctc_mode)
         self.fc = nn.Linear(in_ch, output_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -117,6 +119,14 @@ class SpeechNet(nn.Module):
 
         for block in self.blocks:
             x = block(x)
+
+        if self.ctc_mode:
+            # collapse height/channel-dimension and keep time dimension: (B, channels, time)
+            x_seq = x.mean(dim=2)
+            x_seq = x_seq.permute(0, 2, 1)
+            x_seq = self.dropout(x_seq)
+            out = self.fc(x_seq)
+            return out
 
         x = self.global_pool(x)  # (B, channels_last, 1, 1)
         x = torch.flatten(x, 1)  # (B, channels_last)

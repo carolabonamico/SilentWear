@@ -115,11 +115,18 @@ def resolve_num_classes_from_cfg(
         # CTC output size is based on token vocabulary.
         from utils.I_data_preparation.ctc_text_mapper import CTCTextMapper, DEFAULT_BLANK_ID
 
-        ctc_cfg = train_cfg.get("ctc", {}) or {}
-        lexicon_words = train_cfg.get("vocab_words") or ctc_cfg.get("vocab_words") or []
+        ctc_cfg = train_cfg.get("ctc")
+        if not isinstance(ctc_cfg, dict):
+            raise KeyError("For loss_name='ctc', model.kwargs.train_cfg.ctc must be provided.")
+
+        lexicon_path = ctc_cfg.get("lexicon_path")
+        if not lexicon_path:
+            raise ValueError(
+                "For loss_name='ctc', provide model.kwargs.train_cfg.ctc.lexicon_path."
+            )
+
         mapper = CTCTextMapper(
-            lexicon_path=ctc_cfg.get("lexicon_path", "lexicon.txt"),
-            lexicon_words=lexicon_words,
+            lexicon_path=lexicon_path,
             train_label_map=train_label_map or {},
             blank_id=ctc_cfg.get("blank_id", DEFAULT_BLANK_ID),
         )
@@ -149,9 +156,12 @@ def load_pretrained_model(base_cfg, model_cfg, pretrained_model_path):
     # snapshot BEFORE
     before_sd = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
-    # load checkpoint on CPU, no CUDA
-    cpt = torch.load(pretrained_model_path, map_location="cpu")
-    state_dict = cpt.get("model_state_dict", cpt)
+    if str(pretrained_model_path).endswith('.safetensors'):
+        from safetensors.torch import load_file
+        state_dict = load_file(pretrained_model_path)
+    else:
+        cpt = torch.load(pretrained_model_path, map_location="cpu")
+        state_dict = cpt.get("model_state_dict", cpt)
 
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     print(f"Loaded checkpoint. missing={len(missing)} unexpected={len(unexpected)}")

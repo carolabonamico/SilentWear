@@ -6,3 +6,4 @@ right r i g h t |
 start s t a r t |
 stop s t o p |
 up u p |
+rest r e s t |

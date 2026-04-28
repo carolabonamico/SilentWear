@@ -233,12 +233,20 @@ def speechnet(
     """
     from models.cnn_architectures.SpeechNet import SpeechNet
 
-    # print("speech net base with kwars", model_kwargs)
+    train_cfg = model_kwargs["train_cfg"]
+    loss_name = str(train_cfg["loss_name"]).lower().strip()
+    if loss_name not in {"ctc", "cross_entropy"}:
+        raise ValueError(f"Unsupported loss_name='{loss_name}'.")
+
+    use_ctc = loss_name == "ctc"
+    model_kwargs["ctc_mode"] = use_ctc
+    output_classes = num_classes + (1 if use_ctc else 0)
+
     return SpeechNet(
         C=num_channels,
         T=num_samples,
-        output_classes=num_classes,
-        **model_kwargs,  # <-- passes blocks_config, dropout, etc.
+        output_classes=output_classes,
+        **model_kwargs,
     )
 
 
@@ -269,14 +277,17 @@ def emg_transformer(
 
     # train_cfg is consumed by the trainer, not by the model constructor.
     model_kwargs = dict(model_kwargs)
-    train_cfg = model_kwargs.get("train_cfg", {})
-    loss_name = str(train_cfg.get("loss_name", "")).lower().strip() if isinstance(train_cfg, dict) else ""
-    use_ctc_blank = loss_name == "ctc"
+    train_cfg = model_kwargs["train_cfg"]
+    loss_name = str(train_cfg["loss_name"]).lower().strip()
+    if loss_name not in {"ctc", "cross_entropy"}:
+        raise ValueError(f"Unsupported loss_name='{loss_name}'.")
+
+    use_ctc = loss_name == "ctc"
     model_kwargs.pop("train_cfg", None)
 
     return EMGTransformer(
         num_features=num_channels,
-        num_outs=num_classes + (1 if use_ctc_blank else 0),
+        num_outs=num_classes + (1 if use_ctc else 0),
         in_chans=num_channels,
         **model_kwargs,
     )

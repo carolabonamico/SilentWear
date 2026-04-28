@@ -174,7 +174,7 @@ def load_subjects_data(
 
 
 def print_dataset_summary_statistics(df):
-    print("\n Loaded DataFrame Summary")
+    print("\nLoaded DataFrame Summary")
     print(f"Total rows: {len(df)}")
     print(f"Total columns: {len(df.columns)}")
     unique_subjects = df["subject_id"].unique()

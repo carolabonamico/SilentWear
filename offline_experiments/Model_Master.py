@@ -36,6 +36,8 @@ from offline_experiments.general_utils import (
 
 #######################
 
+NUM_CHANNELS = 14
+
 
 class Model_Master:
     """
@@ -95,7 +97,7 @@ class Model_Master:
         # Added distinction w.r.t. S00 (which had different labels)
         if self.base_config["data"]["subject_id"] != "S00":
             if include_rest:
-                print("Rest inclded")
+                print("Rest included")
                 # identity mapping
                 self.train_label_map = original_map.copy()
                 self.train_to_orig = {k: k for k in original_map.keys()}
@@ -313,12 +315,18 @@ class Model_Master:
 
     def _build_ctc_mapper(self, train_cfg: dict) -> CTCTextMapper:
         """Build the CTC text mapper."""
-        ctc_cfg = train_cfg.get("ctc", {}) or {}
-        lexicon_words = train_cfg.get("vocab_words") or ctc_cfg.get("vocab_words") or []
+        ctc_cfg = train_cfg.get("ctc")
+        if not isinstance(ctc_cfg, dict):
+            raise KeyError("For loss_name='ctc', model.kwargs.train_cfg.ctc must be provided.")
+
+        lexicon_path = ctc_cfg.get("lexicon_path")
+        if not lexicon_path:
+            raise ValueError(
+                "For loss_name='ctc', provide model.kwargs.train_cfg.ctc.lexicon_path."
+            )
 
         return CTCTextMapper(
-            lexicon_path=ctc_cfg.get("lexicon_path", "lexicon.txt"),
-            lexicon_words=lexicon_words,
+            lexicon_path=lexicon_path,
             train_label_map=self.train_label_map,
             blank_id=ctc_cfg.get("blank_id", DEFAULT_BLANK_ID),
         )
@@ -340,19 +348,20 @@ class Model_Master:
         )
 
         ctx = {
-            "num_channels": 14,  # FIXED
+            "num_channels": NUM_CHANNELS,
             "num_samples": int(self.base_config["window"]["window_size_s"] * FS),
             "num_classes": self.num_classes,
         }
 
-        text_mapper = None        
+        text_mapper = None
         train_cfg = None
         loss_name = None
-        text_mapper = None
-        
+
         if self.kind == "dl":
             train_cfg = self.model_config["model"]["kwargs"]["train_cfg"]
             loss_name = self._get_loss_name(train_cfg)
+
+            print(f"Selected loss function: {loss_name}")
 
             # CTC logits are character-level: output dimension must match token vocab size.
             if loss_name == "ctc":
@@ -385,7 +394,7 @@ class Model_Master:
             )
         elif self.kind == "dl":
             if loss_name == "ctc":
-                ctc_cfg = train_cfg.get("ctc", {}) or {}
+                ctc_cfg = train_cfg["ctc"]
                 strategy = CTCStrategy(
                     text_mapper,
                     allow_nearest_word_match=bool(ctc_cfg.get("allow_nearest_word_match", True)),

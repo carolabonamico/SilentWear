@@ -15,18 +15,8 @@ model:
       weight_decay: 1.0e-4
       grad_clip_norm: 1.0
 
-      # Use CTC loss and provide vocab + ctc settings
+      # Use CTC loss and read words from ctc.lexicon_path
       loss_name: ctc
-
-      vocab_words:
-        - up
-        - down
-        - left
-        - right
-        - forward
-        - backward
-        - start
-        - stop
 
       ctc:
         blank_id: 0

@@ -36,19 +36,31 @@ class CTCTextMapper(CTCTextTransform):
         }
 
         self.lexicon_words = []
-        if lexicon_path and os.path.exists(lexicon_path):
+        if lexicon_path:
+            if not os.path.exists(lexicon_path):
+                raise FileNotFoundError(f"CTC lexicon_path does not exist: {lexicon_path}.")
             with open(lexicon_path, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         self.lexicon_words.append(self.clean_text(line.strip().split()[0]))
         elif lexicon_words:
             self.lexicon_words = [self.clean_text(w) for w in lexicon_words]
-        elif self.label_to_word_map:
-            self.lexicon_words = [
-                self.label_to_word_map[k] for k in sorted(self.label_to_word_map.keys())
-            ]
+        else:
+            raise ValueError("CTCTextMapper requires either lexicon_path or lexicon_words.")
 
         self.lexicon_words = list(dict.fromkeys(self.lexicon_words))
+
+        # If training labels are provided, keep only lexicon words that belong to the active label set (e.g., drop "rest" when include_rest=False).
+        if self.word_to_label_map:
+            active_words = set(self.word_to_label_map.keys())
+            self.lexicon_words = [word for word in self.lexicon_words if word in active_words]
+
+            missing_active_words = sorted(active_words.difference(self.lexicon_words))
+            if missing_active_words:
+                raise ValueError(f"CTC lexicon is missing active label words: {missing_active_words}.")
+
+        if not self.lexicon_words:
+            raise ValueError("CTC lexicon is empty after loading.")
 
         super().__init__(vocab_words=self.lexicon_words, blank_id=self.blank_id)
 
