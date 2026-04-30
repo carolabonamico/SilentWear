@@ -20,6 +20,13 @@ label_to_word_map = {
     6: "backward",
     7: "start",
     8: "stop",
+    9: "advance",
+    10: "reverse",
+    11: "rotate",
+    12: "halt",
+    13: "begin",
+    14: "grab",
+    15: "place",
 }
 
 ORIGINAL_LABELS = {
@@ -32,4 +39,11 @@ ORIGINAL_LABELS = {
     6: "backward",
     7: "start",
     8: "stop",
+    9: "advance",
+    10: "reverse",
+    11: "rotate",
+    12: "halt",
+    13: "begin",
+    14: "grab",
+    15: "place",
 }

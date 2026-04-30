@@ -47,7 +47,8 @@ from utils.II_feature_extraction.win_feature_extraction_main import (
 
 
 DEFAULT_WINDOWS_S = [0.4, 0.6, 0.8, 1.0, 1.2, 1.4]
-DEFAULT_SUBJECTS = ["S01", "S02", "S03", "S04"]
+# DEFAULT_SUBJECTS = ["S01", "S02", "S03", "S04"]
+DEFAULT_SUBJECTS = ["S02"]
 DEFAULT_CONDITIONS = ["silent", "vocalized"]
 
 

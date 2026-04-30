@@ -46,7 +46,7 @@ BIO_RE = re.compile(
 )
 
 
-def read_bio_file(file_path: str) -> dict:
+def read_bio_file_old(file_path: str) -> dict:
     """
     Parameters
     ----------
@@ -128,6 +128,77 @@ def read_bio_file(file_path: str) -> dict:
                     samples_per_packet = sig_data["data"].shape[0] // n_samp_base
                     # Align the signal length with the trigger length
                     sig_data["data"] = sig_data["data"][: len(trigger) * samples_per_packet, :]
+            signals["trigger"] = {"data": trigger, "fs": fs_base}
+
+    return signals
+
+
+def read_bio_file(file_path: str) -> dict:
+    dtypeMap = {
+        "?": np.dtype("bool"),
+        "b": np.dtype("int8"),
+        "B": np.dtype("uint8"),
+        "h": np.dtype("int16"),
+        "H": np.dtype("uint16"),
+        "i": np.dtype("int32"),
+        "I": np.dtype("uint32"),
+        "q": np.dtype("int64"),
+        "Q": np.dtype("uint64"),
+        "f": np.dtype("float32"),
+        "d": np.dtype("float64"),
+    }
+
+    with open(file_path, "rb") as f:
+        n_signals = struct.unpack("<I", f.read(4))[0]
+        fs_base, n_samp_base = struct.unpack("<fI", f.read(8))
+
+        signals = {}
+        for _ in range(n_signals):
+            sig_name_len = struct.unpack("<I", f.read(4))[0]
+            sig_name = struct.unpack(f"<{sig_name_len}s", f.read(sig_name_len))[0].decode()
+            fs, n_samp, n_ch, dtype = struct.unpack("<f2Ic", f.read(13))
+
+            signals[sig_name] = {
+                "fs": fs,
+                "n_samp": n_samp,
+                "n_ch": n_ch,
+                "dtype": dtypeMap[dtype.decode("ascii")],
+            }
+
+        is_trigger = struct.unpack("<?", f.read(1))[0]
+
+        # 1. Timestamp
+        ts = np.frombuffer(f.read(8 * n_samp_base), dtype=np.float64).reshape(n_samp_base, 1)
+        signals["timestamp"] = {"data": ts, "fs": fs_base}
+
+        # 2. Signals data
+        for sig_name, sig_data in signals.items():
+            if sig_name == "timestamp":
+                continue
+
+            n_samp = sig_data.pop("n_samp")
+            n_ch = sig_data.pop("n_ch")
+            dtype = sig_data.pop("dtype")
+
+            data = np.frombuffer(
+                f.read(dtype.itemsize * n_samp * n_ch), dtype=dtype
+            ).reshape(n_samp, n_ch)
+            sig_data["data"] = data
+
+        # 3. Trigger and clamping
+        if is_trigger:
+            itemsize = 4
+            trigger = np.frombuffer(f.read(itemsize * n_samp_base), dtype=np.int32).reshape(n_samp_base, 1)
+            for sig_name, sig_data in signals.items():
+                if sig_name == "timestamp":
+                    # Align the timestamp length with the trigger length
+                    sig_data["data"] = sig_data["data"][: len(trigger), :]
+                else:
+                    samples_per_packet = sig_data["data"].shape[0] / n_samp_base
+                    # Align the signal length with the trigger length
+                    target_length = int(len(trigger) * samples_per_packet)
+                    sig_data["data"] = sig_data["data"][:target_length, :]
+                    
             signals["trigger"] = {"data": trigger, "fs": fs_base}
 
     return signals
@@ -357,40 +428,24 @@ def data_losses_check(counter):
     """
     Docstring for data_losses_check
 
-    :param counter: counter retured by the GUI
-    This function check if data were lost during the data collection
-
+    :param counter: counter returned by the GUI
+    This function checks if data were lost during the data collection
     """
-
-    counter_reconstructed = np.zeros(len(counter), dtype=np.int32)
-    counter_reconstructed[0] = counter[0]
-    prev_counter = counter[0]
-    losses_cnts = 0
-
-    for i, curr_counter in enumerate(counter[1:]):
-
-        # Handle counter reset
-        if prev_counter == 255:
-            # current counter value should be 0. If not, data were lost
-            losses = curr_counter
-            losses_cnts += losses
-        else:
-            losses = curr_counter - (prev_counter + 1)
-            losses_cnts += losses
-
-        counter_reconstructed[i + 1] = counter_reconstructed[i] + losses + 1
-        prev_counter = curr_counter
-    # Sometimes counter does not start from 0, reset
-    counter = counter - counter[0]
-    print(f"Lost:{losses} samples")
-    # Note: first value of the counter might not be 0. This is how the FW is designed
-    if losses_cnts != 0:
+    
+    counter = np.asarray(counter, dtype=np.int64)
+    diffs = (np.diff(counter)) % 256
+    losses_array = diffs - 1
+    losses_cnts = np.sum(losses_array)
+    steps = np.concatenate(([counter[0]], diffs))
+    counter_reconstructed = np.cumsum(steps)
+    if losses_cnts > 0:
         print(f"[COUNTER_CHECK], Lost: {losses_cnts} samples")
         count_diffs = np.diff(counter_reconstructed)
-
-        if np.sum(count_diffs != 1) != losses:
+        if np.sum(count_diffs[count_diffs > 1] - 1) != losses_cnts:
             print("[COUNTER CHECK], dimension mismatch!")
             sys.exit()
+                      
+    return counter_reconstructed, losses_cnts
 
 
 def print_label_statistics(emg_df):
@@ -427,16 +482,26 @@ def prepare_dataset(signals, hp_cutoff, notch_cutoff):
 
     # ------------------------------------------------------------
     # 1. Extract signals
-    emg_data = signals["biogap"]["data"]
-    counter = np.hstack(signals["counter"]["data"])
+    emg_data = signals["emg"]["data"]
+    counter = signals["counter_emg"]["data"].flatten()
+    trigger = signals["trigger"]["data"].flatten() 
+    
     # check for data losses
     # ========== TO-DO: implement extra adjstement in case of data lossess (not needed for recorded data) ============
     data_losses_check(counter)
-    trigger = np.hstack(signals["trigger"]["data"])
-    # 2. Expand trigger (1 packet contains 4 EMG samples)
-    trigger = np.repeat(trigger, 4)
+    # Calculate exactly how many times the trigger needs to be repeated to match the number of rows in emg_data
+    multiplier = emg_data.shape[0] // trigger.shape[0]
+    
+    # 2. Expand trigger
+    trigger = np.repeat(trigger, multiplier) 
+    # If there's a slight mismatch due to rounding/clipping, force exact alignment by truncating to the minimum length
+    min_len = min(emg_data.shape[0], trigger.shape[0])
+    emg_data = emg_data[:min_len, :]
+    trigger = trigger[:min_len]
+    
     # 3. Convert integer labels into string labels
     labels = np.vectorize(ORIGINAL_LABELS.get)(trigger)
+    
     # 4. Build EMG DataFrame
     emg_df = pd.DataFrame(emg_data, columns=[f"Ch_{i}" for i in range(emg_data.shape[1])])
 
@@ -461,11 +526,11 @@ def prepare_dataset(signals, hp_cutoff, notch_cutoff):
     # Trim recording considering only first and last label
     first_label_loc = emg_df["Label_int"][emg_df["Label_int"] != 0].index[0]
     # give some margin (1 sec before)
-    first_label_loc = first_label_loc - FS
+    first_label_loc = int(first_label_loc - FS)
 
     last_label_loc = emg_df["Label_int"][emg_df["Label_int"] != 0].index[-1]
     # give some margin (1 sec after)
-    last_label_loc = last_label_loc + FS
+    last_label_loc = int(last_label_loc + FS)
 
     emg_df = emg_df.iloc[first_label_loc:last_label_loc]
 

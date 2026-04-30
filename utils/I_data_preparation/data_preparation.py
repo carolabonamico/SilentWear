@@ -15,9 +15,9 @@ from visualizations import *
 
 # ================ USER_EDITABLE =========================
 
-DATA_DIRECTORY = Path(r"... path_to_your_data")
-sub_ids = ["S01", "S02", "S03", "S04"]
-# sub_ids = ["S01"]
+DATA_DIRECTORY = Path(r"/scratch2/msc26f7/SilentWear/data")
+# sub_ids = ["S01", "S02", "S03", "S04"]
+sub_ids = ["S02"]
 process_all = True
 # If Process_all = False -> select what you want to process
 session_id = 1
@@ -37,7 +37,7 @@ if __name__ == "__main__":
         data_dire_raw = (
             DATA_DIRECTORY / "raw" / sub_id
         )  # directory where you placed your .bio recordings
-        data_dire_processed = DATA_DIRECTORY / "raw_and_processed" / sub_id
+        data_dire_processed = DATA_DIRECTORY / "data_raw_and_filt" / sub_id
 
         if data_dire_processed.exists() == False:
             data_dire_processed.mkdir(parents=True)

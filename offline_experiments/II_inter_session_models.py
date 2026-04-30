@@ -213,6 +213,10 @@ class Inter_Session_Model_Trainer:
         self.cv_summaries = []
         sessions = np.sort(self.df["session_id"].unique())
 
+        if len(sessions) < 2:
+            print("[WARN] Only one session found; using a single train/val/test split.")
+            return self._cv_single_split(self.df, val_size=val_size, seed=seed)
+
         for fold_id, test_session_id in enumerate(sessions):
             print(
                 f"\n\n=== LOSO FOLD {fold_id+1}/{len(sessions)} | test_session={test_session_id} ==="
@@ -223,6 +227,9 @@ class Inter_Session_Model_Trainer:
 
             if self.include_rest:
                 min_samples = train_val_data["Label_int"].value_counts().min()
+                if pd.isna(min_samples):
+                    raise ValueError("No label samples available for rest balancing.")
+                min_samples = int(min_samples)
                 idx_rest = train_val_data[train_val_data["Label_str"] == "rest"].index.values
                 index_rest_ds = (
                     train_val_data[train_val_data["Label_str"] == "rest"]
@@ -250,6 +257,56 @@ class Inter_Session_Model_Trainer:
             )
             self.cv_summaries.append(row_summary)
 
+        return self.cv_summaries
+
+    def _cv_single_split(
+        self, df: pd.DataFrame, val_size: float = 0.3, seed: int = 0
+    ) -> List[Dict[str, Any]]:
+        """Run a single train/val/test split when only one session is available."""
+        
+        self.cv_summaries = []
+        work_df = df.copy()
+        if work_df.empty:
+            raise ValueError("No data available for CV.")
+
+        if self.include_rest:
+            min_samples = work_df["Label_int"].value_counts().min()
+            if pd.isna(min_samples):
+                raise ValueError("No label samples available for rest balancing.")
+            min_samples = int(min_samples)
+            idx_rest = work_df[work_df["Label_str"] == "rest"].index.values
+            index_rest_ds = (
+                work_df[work_df["Label_str"] == "rest"]
+                .sample(n=min_samples, random_state=seed)
+                .index.values
+            )
+            idx_to_drop = np.setdiff1d(idx_rest, index_rest_ds)
+            work_df = work_df.drop(index=idx_to_drop)
+
+        train_val_data, test_data = train_test_split(
+            work_df,
+            test_size=val_size,
+            shuffle=True,
+            random_state=seed,
+            stratify=work_df["Label_int"],
+        )
+        train_data, val_data = train_test_split(
+            train_val_data,
+            test_size=val_size,
+            shuffle=True,
+            random_state=seed,
+            stratify=train_val_data["Label_int"],
+        )
+
+        row_summary = self._run_one_fold(
+            fold_id=0,
+            train_df=train_data,
+            val_df=val_data,
+            test_df=test_data,
+            mode="single_split",
+            test_session_id=None,
+        )
+        self.cv_summaries.append(row_summary)
         return self.cv_summaries
 
     def _run_one_fold(
