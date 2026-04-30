@@ -20,6 +20,8 @@ import torch
 import hashlib
 from models.strategies import TaskStrategy
 
+EARLY_STOP_PATIENCE = 5  # default value if not specified in train_cfg
+
 
 class TorchTrainer:
     def __init__(self, estimator, df_train, df_val, df_test, train_cfg, label_col,
@@ -43,11 +45,9 @@ class TorchTrainer:
         self, df, batch_size=32, shuffle=False, num_workers=0  # we shuffle outside
     ):
         """
-        Function to create a dataloader from a givne df.
+        Function to create a dataloader from a given df.
         """
-        if df is None:
-            return None
-        if df.empty:
+        if df is None or df.empty is None:
             return None
         X_df = df.drop(columns=self.label_col)
         print(X_df.columns)
@@ -136,7 +136,7 @@ class TorchTrainer:
         # betas = optimizer_cfg.get("betas", (0.9, 0.999))
 
         print("Model will be trained for:", num_epochs, "epochs")
-        early_stop_patience = train_cfg.get("early_stop_patience", 5)
+        early_stop_patience = train_cfg.get("early_stop_patience", EARLY_STOP_PATIENCE)
         print("Early stop patienence set to:", early_stop_patience)
         print("Set optimizer", opt_name, "|lr:", lr, "|wd:", weight_decay)
         scheduler_cfg = train_cfg.get("scheduler", None)

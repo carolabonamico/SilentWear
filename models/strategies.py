@@ -63,6 +63,10 @@ class CTCStrategy(TaskStrategy):
         self.text_mapper = text_mapper
         self.criterion = nn.CTCLoss(blank=self.text_mapper.blank_id, zero_infinity=True)
         self.allow_nearest_word_match = allow_nearest_word_match
+        self._label_token_map = {
+            int(label): self.text_mapper.text_to_int(word)
+            for label, word in self.text_mapper.label_to_word_map.items()
+        }
 
     def compute_loss(self, outputs, targets, device: torch.device) -> torch.Tensor:
         """Expects logits of shape (B, T, C)."""
@@ -73,6 +77,35 @@ class CTCStrategy(TaskStrategy):
         target_tokens, target_lengths = self.text_mapper.ctc_targets_from_label_int(targets, device)
         return self.criterion(pred, target_tokens, input_lengths, target_lengths)
 
+    def _best_label_from_ctc_scores(self, sample_logits: torch.Tensor) -> int:
+        """Pick class label (word) with minimum CTC loss."""
+        device = sample_logits.device
+        time_steps = int(sample_logits.shape[0])
+
+        log_probs = F.log_softmax(sample_logits, dim=-1).unsqueeze(1)  # (T, 1, C)
+        input_lengths = torch.tensor([time_steps], dtype=torch.long, device=device) # Number of time steps for CTC input
+        best_label = -1
+        best_loss = float("inf")
+
+        for label, token_ids in self._label_token_map.items():
+            if not token_ids:
+                continue
+
+            target_tokens = torch.tensor(token_ids, dtype=torch.long, device=device)
+            target_lengths = torch.tensor([len(token_ids)], dtype=torch.long, device=device)
+
+            loss = self.criterion(log_probs, target_tokens, input_lengths, target_lengths)
+            loss_value = float(loss.detach().cpu().item())
+
+            if loss_value < best_loss:
+                best_loss = loss_value
+                best_label = int(label)
+
+        if best_label < 0:
+            raise ValueError("CTC scores decoding failed: no valid class tokenization found.")
+
+        return best_label
+
     def predict_labels(self, outputs) -> np.ndarray:
         with torch.no_grad():
             logits = self._extract_logits(outputs)
@@ -80,6 +113,14 @@ class CTCStrategy(TaskStrategy):
             preds, _ = self.text_mapper.words_to_label_int(
                 words, allow_nearest=self.allow_nearest_word_match
             )
+
+            # If greedy decode yields empty strings encoded as -1 or 
+            # the string does not correspond to any known word (allow_nearest=False), 
+            # try to find best label by CTC scores
+            if any(int(p) < 0 for p in preds):
+                for i, pred in enumerate(preds):
+                    if int(pred) < 0:
+                        preds[i] = self._best_label_from_ctc_scores(logits[i])
 
         return np.asarray(preds, dtype=np.int64)
 
