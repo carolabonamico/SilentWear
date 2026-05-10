@@ -201,7 +201,7 @@ class Single_Recording_Windower_and_Feature_Extractor:
         start_idx: int,
         channel_tag: str,
         sample_per_big_window: int,
-        sample_per_small_window: int,
+        sample_per_small_window: int | None,
     ) -> Dict[str, float]:
         """Extract features for a SINGLE channel across all small windows.
 
@@ -217,13 +217,16 @@ class Single_Recording_Windower_and_Feature_Extractor:
             Dictionary with all features for this channel, keyed by feature name.
         """
 
+        if sample_per_small_window is None:
+            raise ValueError("sample_per_small_window must not be None when extracting features")
+
         num_small_windows = sample_per_big_window // sample_per_small_window
         feature_row = {}
 
         for small_index in range(num_small_windows):
             small_start = start_idx + small_index * sample_per_small_window
             small_end = small_start + sample_per_small_window
-            small_window_data = df_filtered.loc[small_start:small_end, channel_tag].values
+            small_window_data = df_filtered.loc[small_start:small_end, channel_tag].to_numpy(copy=False)
 
             window_features = self.feature_extractor.extract_window_features(small_window_data)
             window_num = small_index + 1
@@ -242,7 +245,7 @@ class Single_Recording_Windower_and_Feature_Extractor:
         df_channels: pd.Index,
         start_idx: int,
         sample_per_big_window: int,
-        sample_per_small_window: int,
+        sample_per_small_window: int | None,
     ) -> dict:
         """Extract features for a single word across all channels.
 
@@ -272,6 +275,7 @@ class Single_Recording_Windower_and_Feature_Extractor:
     def extract_windows_and_features_from_df(self, df, seg_df):
 
         sample_per_big_window = int(self.window_size_s * FS)
+        sample_per_small_window = None
         if self.num_subwin is not None:
             sample_per_small_window = sample_per_big_window // self.num_subwin
 
@@ -325,9 +329,11 @@ class Single_Recording_Windower_and_Feature_Extractor:
     def process_single_recording(self, valid_labels=label_to_word_map.keys()):
         # Read current file
         df = pd.read_hdf(self.h5_file, key="emg")
+        df = pd.DataFrame(df)
+        df = df.reset_index(drop=True)
         print_label_statistics(df)
         # Find segments corresponding to each Word (or rest)
-        seg_df = self.find_word_segments_df(df, valid_vals=valid_labels, label_col="Label_int")
+        seg_df = self.find_word_segments_df(df, valid_vals=set(valid_labels), label_col="Label_int")
         df_wins_feats = self.extract_windows_and_features_from_df(df, seg_df)
         print(df_wins_feats)
         return df_wins_feats

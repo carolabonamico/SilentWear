@@ -1,0 +1,285 @@
+"""
+Script to visualize windowed features for each word and condition in a grid layout, with consistent scaling across conditions.
+"""
+
+
+import os
+import sys
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import matplotlib
+matplotlib.use("Agg")
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from utils.I_data_preparation.experimental_config import FS, label_to_word_map
+from taper_fig import get_sorted_channel_cols, short_labels, plot_stacked_channels_in_cell
+from fig_config import channel_colors, neckband_ch_order
+
+
+# ----------------------------
+# Configuration
+# ----------------------------
+
+
+wins_root = Path("path/to/wins_root")  # Update this to the actual path where the WIN_{window_ms} folders are located
+subject_id = "S01"
+window_ms = 1400
+conditions = None
+target_session = 1
+target_batch = 1
+
+save_dir = Path(f"./windowing_check_test/figures/{subject_id}/WIN_{window_ms}")
+output_ext = "png"
+exclude_words = {"rest"}
+
+ordered_cols = [f"Ch_{i}_filt" for i in neckband_ch_order]
+
+
+# ----------------------------
+# Helper functions
+# ----------------------------
+
+
+def _concat_windows(series):
+    """Concatenates a pandas Series of arrays (e.g., windowed features) into a single 1D array"""
+    arrays = [np.asarray(v) for v in series if v is not None]
+    if len(arrays) == 0:
+        return np.array([])
+    return np.concatenate(arrays)
+
+
+def find_wins_h5(wins_root_dir, subject, win_ms, conditions_list=None):
+    """Finds all .h5 files for a given subject and window size, optionally filtering by conditions, session, and batch."""
+    base_dir = Path(wins_root_dir) / subject
+    if not base_dir.exists():
+        raise FileNotFoundError(f"Wins root does not exist: {base_dir}")
+
+    if conditions_list is None:
+        conditions_list = sorted(
+            [p.name for p in base_dir.iterdir() if p.is_dir() and (p / f"WIN_{win_ms}").exists()]
+        )
+        if "vocalized" in conditions_list and "silent" in conditions_list:
+            ordered = ["vocalized", "silent"]
+            conditions_list = ordered + [col for col in conditions_list if col not in ordered]
+
+    if len(conditions_list) == 0:
+        raise FileNotFoundError(f"No condition folders found with WIN_{win_ms} under {base_dir}")
+
+    h5_files = []
+    for cond in conditions_list:
+        win_dir = base_dir / cond / f"WIN_{win_ms}"
+        if win_dir.exists():
+            h5_files.extend(sorted(win_dir.glob("*.h5")))
+
+    if target_session is not None:
+        h5_files = [f for f in h5_files if f.name.find(f"sess_{target_session}") != -1]
+    if target_batch is not None:
+        h5_files = [f for f in h5_files if f.name.find(f"batch_{target_batch}") != -1]
+
+    return h5_files, conditions_list
+
+
+def load_wins_df(h5_files, key="wins_feats"):
+    """
+    Loads windowed features from a list of .h5 files into a single DataFrame, adding source file and condition metadata.
+    The function concatenates all the DataFrames from the .h5 files into one large DataFrame.
+    """
+    frames = []
+    for file in h5_files:
+        try:
+            df = pd.read_hdf(file, key=key)
+            df["source_file"] = file.name
+            df["condition"] = file.parent.parent.name
+            frames.append(df)
+        except Exception:
+            continue
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+# ----------------------------
+# Plotting functions
+# ----------------------------
+
+
+def _normalize_axes(axs, n_rows, n_cols):
+    """Ensures that axs is a 2D numpy array of shape (n_rows, n_cols) even if n_rows or n_cols is 1."""
+    if isinstance(axs, np.ndarray):
+        if axs.ndim == 2:
+            return axs
+        if axs.ndim == 1:
+            if n_rows == 1:
+                return axs[np.newaxis, :]
+            return axs[:, np.newaxis]
+    return np.array([[axs]])
+
+
+def plot_windows_per_word(
+    df,
+    word,
+    conditions_list,
+    ch_cols,
+    global_spacing_map,
+    save_path,
+    alpha=1.0,
+    lw=1.0,
+    grid_alpha=0.15,
+    alt_bg_alpha=0.04,
+    row_fontsize=24,
+    title_fontsize=28,
+    time_xlim_s=None,
+    time_xlabel="Time [s]",
+    outer_box=True,
+    outer_box_lw=2.0,
+    outer_box_color="white",
+    text_color="black"
+):
+    """Plots windowed features for a specific word across different conditions in a grid layout."""
+    
+    counts = [len(df[(df["condition"] == cond) & (df["Label_str"] == word)]) for cond in conditions_list]
+    max_reps = max(counts) if len(counts) > 0 else 0
+    
+    if max_reps == 0:
+        return None
+
+    fig_width = max(10, 2.5 * max_reps)
+    fig, axs = plt.subplots(len(conditions_list), max_reps, figsize=(fig_width, 10), sharex=True, sharey="row")
+    axs = _normalize_axes(axs, len(conditions_list), max_reps)
+
+    L, R, B, T = 0.06, 0.98, 0.1, 0.88
+    
+    fig.subplots_adjust(left=L, right=R, bottom=B, top=T, wspace=0.05, hspace=0.05)
+    
+    fig.suptitle(word.upper(), fontsize=title_fontsize, y=0.98, color=text_color)
+
+    for row_idx, cond in enumerate(conditions_list):
+        df_cond = df[(df["condition"] == cond) & (df["Label_str"] == word)].copy()
+        
+        if df_cond.empty:
+            for col_idx in range(max_reps):
+                axs[row_idx, col_idx].set_visible(False)
+            continue
+
+        sort_cols = [col for col in ["session_id", "batch_id", "start_idx"] if col in df_cond.columns]
+        if sort_cols:
+            df_cond = df_cond.sort_values(sort_cols).reset_index(drop=True)
+
+        spacing = global_spacing_map[cond]["spacing"]
+        ylims = global_spacing_map[cond]["ylims"]
+
+        for col_idx in range(max_reps):
+            ax = axs[row_idx, col_idx]
+            if col_idx % 2 == 0:
+                # Black with low alpha creates a light gray background column on white
+                ax.set_facecolor((0, 0, 0, alt_bg_alpha))
+
+            if col_idx < len(df_cond):
+                row = df_cond.iloc[col_idx]
+                seg_df = pd.DataFrame({col: row[col] for col in ch_cols})
+                
+                plot_stacked_channels_in_cell(
+                    ax=ax, df_seg=seg_df, ch_cols=ch_cols, fs=FS,
+                    spacing=spacing, ylims=ylims, alpha=alpha, lw=lw,
+                    channel_colors=channel_colors,
+                )
+                
+                ax.grid(True, alpha=grid_alpha)
+                n_samp = len(np.asarray(row[ch_cols[0]]))
+                x_max = time_xlim_s if time_xlim_s is not None else n_samp / FS
+                ax.set_xlim(0, x_max)
+                
+                if row_idx == len(conditions_list) - 1:
+                    ax.tick_params(axis="x", bottom=True, labelbottom=True, labelsize=20, colors=text_color)
+                    if col_idx == int(max_reps/2):
+                        ax.set_xlabel(time_xlabel, fontsize=20, color=text_color)
+                else:
+                    ax.tick_params(axis="x", bottom=False, labelbottom=False)
+            else:
+                ax.set_visible(False)
+
+        # Remove Y labels and ticks for all columns (including the first one)
+        for col_idx in range(max_reps):
+            for sp in axs[row_idx, col_idx].spines.values():
+                sp.set_visible(False)
+            axs[row_idx, col_idx].tick_params(axis="y", left=False, labelleft=False)
+
+        bb = axs[row_idx, 0].get_position()
+        cy = 0.5 * (bb.y0 + bb.y1)
+        fig.text(L - 0.03, cy, cond.capitalize(), ha="left", va="center", fontsize=row_fontsize, rotation=90, color=text_color)
+
+    if outer_box:
+        rect = patches.Rectangle(
+            (L - 0.002, B - 0.002), (R - L) + 0.004, (T - B) + 0.004,
+            transform=fig.transFigure, fill=False, linewidth=outer_box_lw,
+            edgecolor=outer_box_color, zorder=1000, clip_on=False,
+        )
+        fig.add_artist(rect)
+
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(save_path, bbox_inches="tight", pad_inches=0.02, transparent=False, facecolor="white")
+    print(f"Saved plot for word {word.upper()}")
+    plt.close(fig)
+
+
+# ----------------------------
+# Main
+# ----------------------------
+
+if __name__ == "__main__":
+    
+    print(f"Generating windowed plots for subject {subject_id}, session {target_session}, batch {target_batch} with window size {window_ms} ms")
+    h5_files, conditions_list = find_wins_h5(wins_root, subject_id, window_ms, conditions)
+    df = load_wins_df(h5_files, key="wins_feats")
+
+    if df.empty:
+        raise RuntimeError("No windowed data loaded.")
+
+    ch_cols = [col for col in ordered_cols if col in df.columns]
+    
+    # Global scale calculation
+    spacing_factor = 10
+    margin_factor = 2
+    global_spacing_map = {}
+    
+    for cond in conditions_list:
+        df_cond = df[df["condition"] == cond]
+        all_signals = []
+        for col in ch_cols:
+            flat_signal = _concat_windows(df_cond[col])
+            if len(flat_signal) > 0:
+                all_signals.append(flat_signal)
+        
+        if all_signals:
+            X_all = np.concatenate(all_signals)
+            amp_ref = float(np.nanpercentile(np.abs(X_all), 95))
+            spacing = spacing_factor * amp_ref if amp_ref > 0 else 1.0
+        else:
+            spacing = 1.0
+            
+        n_ch = len(ch_cols)
+        ylims = (-margin_factor * spacing, (n_ch - 1) * spacing + margin_factor * spacing)
+        
+        global_spacing_map[cond] = {
+            "spacing": spacing,
+            "ylims": ylims
+        }
+
+    ordered_words = [label_to_word_map[i] for i in sorted(label_to_word_map.keys())]
+    words = [w for w in ordered_words if w in df["Label_str"].unique() and w not in exclude_words]
+
+    for word in words:
+        out_path = save_dir / f"{word}_sess_{target_session if target_session is not None else 'all'}_batch_{target_batch if target_batch is not None else 'all'}.{output_ext}"
+        
+        plot_windows_per_word(
+            df=df,
+            word=word,
+            conditions_list=conditions_list,
+            ch_cols=ch_cols,
+            global_spacing_map=global_spacing_map,
+            save_path=out_path,
+            time_xlim_s=window_ms / 1000.0,
+        )
