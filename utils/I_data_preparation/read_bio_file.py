@@ -561,6 +561,14 @@ if __name__ == "__main__":
             sys.exit()
 
         session_id, batch_id, ts = parsed
+
+        signals = read_bio_file(str(curr_bio))
+        emg_fs = float(signals["emg"]["fs"])
+        trigger_fs = float(signals["trigger"]["fs"])
+        print(f"\nFile: {curr_bio.name}")
+        print(f"Sampling frequency EMG: {emg_fs} Hz")
+        print(f"Sampling frequency Trigger: {trigger_fs} Hz\n")
+
         emg_df = read_single_recording(curr_bio, session_id, batch_id, 20, 50, plot=False)
 
         print(print_label_statistics(emg_df))
