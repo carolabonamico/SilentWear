@@ -192,12 +192,17 @@ class Global_Model_Trainer:
             json.dump(run_cfg_dict, f, indent=4, sort_keys=True)
 
     def run_cv(self) -> List[Dict[str, Any]]:
+        """
+        Run CV according to the mode specified in the configuration file.
+        """
         cv_cfg = self.base_config.get("cv", {})
-        mode = cv_cfg.get("mode")
+        mode = cv_cfg.get("global_cv_mode", "leave_one_batch_out")
         val_size = float(cv_cfg.get("val_size", 0.3))
+        n_splits = int(cv_cfg.get("n_splits", 5))
         seed = int(self.base_config["experiment"]["seed"])
         print("========================================\n\n")
         print("SEED set to", seed)
+        print("CV MODE:", mode)
         df = self.df
         if not self.include_rest:
             df = df[df["Label_str"] != "rest"].copy()
@@ -206,9 +211,76 @@ class Global_Model_Trainer:
 
         if mode == "leave_one_batch_out":
             return self._cv_leave_one_batch_out(df, val_size=val_size, seed=seed)
+        elif mode == "stratified_session_label":
+            return self._cv_stratified_session_label(df, n_splits=n_splits, val_size=val_size, seed=seed)
+        else:
+            raise ValueError(f"Unknown global_cv_mode='{mode}'")
+        
+    def _cv_stratified_session_label(
+        self, df: pd.DataFrame, n_splits: int = 5, val_size: float = 0.2, seed: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        CV mode where each fold has the same proportion of samples for each session_id/label combination.
+        """
+        from sklearn.model_selection import StratifiedKFold
+        
+        self.cv_summaries = []
 
-        raise ValueError(f"Unknown cv.mode='{mode}' (expected 'leave_one_batch_out')")
+        # Each fold has the same proportion of samples for each session_id/label combination
+        stratify_key = df["session_id"].astype(str) + "_" + df["Label_int"].astype(str)
 
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+
+        # N fold division (Train+Val / Test)
+        for fold_id, (train_val_idx, test_idx) in enumerate(skf.split(df, stratify_key)):
+            print(f"\n--- FOLD {fold_id+1}/{n_splits} ---")
+
+            # Isolating the Test set
+            train_val_data = df.iloc[train_val_idx].copy()
+            test_data = df.iloc[test_idx].copy()
+
+            # Balancing "rest" class only on Train+Val group
+            if self.include_rest:
+                # Finds the minimum number of samples among classes (excluding 'rest' if necessary)
+                min_samples = train_val_data["Label_int"].value_counts().min()
+                
+                idx_rest = train_val_data[train_val_data["Label_str"] == "rest"].index.values
+                index_rest_ds = (
+                    train_val_data[train_val_data["Label_str"] == "rest"]
+                    .sample(n=min_samples, random_state=seed)
+                    .index.values
+                )
+                idx_to_drop = np.setdiff1d(idx_rest, index_rest_ds)
+                train_val_data = train_val_data.drop(index=idx_to_drop)
+
+            # Final split between Train and Validation
+            # We regenerate the stratification key for the reduced Train+Val pool
+            stratify_train_val = (
+                train_val_data["session_id"].astype(str) + "_" + 
+                train_val_data["Label_int"].astype(str)
+            )
+            
+            train_data, val_data = train_test_split(
+                train_val_data,
+                test_size=val_size,
+                shuffle=True,
+                random_state=seed,
+                stratify=stratify_train_val
+            )
+
+            # fold execution
+            row_summary = self._run_one_fold(
+                fold_id=fold_id,
+                train_df=train_data,
+                val_df=val_data,
+                test_df=test_data,
+                mode="stratified_session_label",
+                test_batch_id=None
+            )
+            self.cv_summaries.append(row_summary)
+
+        return self.cv_summaries
+    
     def _cv_leave_one_batch_out(
         self, df: pd.DataFrame, val_size: float = 0.3, seed: int = 0
     ) -> List[Dict[str, Any]]:
@@ -291,19 +363,20 @@ class Global_Model_Trainer:
             "test_batch": int(test_batch_id) if test_batch_id is not None else None,
         }
 
-        for k, v in metrics.items():
-            if isinstance(v, (np.ndarray, list, tuple)):
-                row_summary[k] = json.dumps(np.asarray(v).tolist())
-            elif isinstance(v, (np.floating,)):
-                row_summary[k] = float(v)
-            else:
-                row_summary[k] = v
+        if metrics is not None:
+            for k, v in metrics.items():
+                if isinstance(v, (np.ndarray, list, tuple)):
+                    row_summary[k] = json.dumps(np.asarray(v).tolist())
+                elif isinstance(v, (np.floating,)):
+                    row_summary[k] = float(v)
+                else:
+                    row_summary[k] = v
 
         row_summary["train_idx"] = self.model_master.df_train.index.tolist()
         row_summary["val_idx"] = self.model_master.df_val.index.tolist()
         row_summary["test_idx"] = self.model_master.df_test.index.tolist()
-        row_summary["y_true"] = y_true.tolist()
-        row_summary["y_pred"] = y_pred.tolist()
+        row_summary["y_true"] = None if y_true is None else np.asarray(y_true).tolist()
+        row_summary["y_pred"] = None if y_pred is None else np.asarray(y_pred).tolist()
 
         return row_summary
 
