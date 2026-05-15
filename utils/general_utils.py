@@ -12,7 +12,8 @@ import yaml
 from pathlib import Path
 import pandas as pd
 import json
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
+import matplotlib.pyplot as plt
 
 ######################################### SUBJECT CONFIGURATION CLASS #################################################
 
@@ -84,7 +85,7 @@ def open_file(file_path: Path) -> Any:
 
 
 def load_all_h5files_from_folder(
-    data_directory: Path, key: str = None, print_statistics: bool = False
+    data_directory: Path, key: Optional[str] = None, print_statistics: bool = False
 ) -> pd.DataFrame:
     """
     Load and concatenate all `.h5` files found recursively inside a folder.
@@ -200,3 +201,43 @@ def print_dataset_summary_statistics(df):
                 print(f"Session: {session_id} - condition: {condition}")
                 print(f"  Unique batches: {len(batches)}")
                 print(f"  Labels distribution:\n{labels}")
+
+
+def plot_loss_curves(train_loss, val_loss, save_model_path: Path):
+    """
+    Saves a plot of train and val loss vs epochs.
+    Expects save_model_path to contain '/models/' so it can be replaced with '/figures/loss/'.
+    """
+    try:
+        path_str = str(save_model_path)
+        if "/models/" in path_str:
+            fig_path_str = path_str.replace("/models/", "/figures/loss/")
+            fig_path = Path(fig_path_str).with_suffix(".png")
+            fig_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            title = 'Training and Validation Loss vs Epochs'
+            parts = save_model_path.parts
+            if "models" in parts:
+                idx = parts.index("models")
+                try:
+                    subject = parts[idx+2]
+                    condition = parts[idx+3]
+                    fold_or_batch = save_model_path.stem
+                    title += f'\nSubject: {subject} | Condition: {condition} | Fold/Batch: {fold_or_batch}'
+                except IndexError:
+                    pass
+
+            plt.figure(figsize=(10, 6))
+            plt.plot(train_loss, label='Train Loss')
+            if val_loss and len(val_loss) == len(train_loss):
+                plt.plot(val_loss, label='Validation Loss')
+            plt.xlabel('Epochs')
+            plt.ylabel('Loss')
+            plt.title(title)
+            plt.legend()
+            plt.grid(True)
+            plt.savefig(fig_path)
+            plt.close()
+            print(f"Saved loss curves to {fig_path}")
+    except Exception as e:
+        print(f"Error saving loss plot: {e}")

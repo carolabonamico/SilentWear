@@ -127,6 +127,18 @@ class Model_Fine_Tuner:
             save_model_path=self.new_model_save_path,
         )
 
+        if self.new_model_save_path is not None and self.base_cfg.get("plot_loss", False):
+            model_path = self.new_model_save_path if self.new_model_save_path.suffix == ".pt" else self.new_model_save_path.with_suffix(".pt")
+            if model_path.exists():
+                try:
+                    import torch
+                    from utils.general_utils import plot_loss_curves
+                    state = torch.load(model_path, map_location="cpu", weights_only=False)
+                    if "train_loss" in state and "val_loss" in state:
+                        plot_loss_curves(state["train_loss"], state["val_loss"], model_path)
+                except Exception as e:
+                    print(f"Failed to plot loss curves: {e}")
+
 
 if __name__ == "__main__":
     from models.seeds import *

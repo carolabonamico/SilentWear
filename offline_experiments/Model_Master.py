@@ -424,6 +424,18 @@ class Model_Master:
 
         self.model = self.trainer_manager.fit(save_model_path)
 
+        if save_model_path is not None and self.base_config.get("plot_loss", False):
+            model_path = save_model_path if save_model_path.suffix == ".pt" else save_model_path.with_suffix(".pt")
+            if model_path.exists():
+                try:
+                    import torch
+                    from utils.general_utils import plot_loss_curves
+                    state = torch.load(model_path, map_location="cpu", weights_only=False)
+                    if "train_loss" in state and "val_loss" in state:
+                        plot_loss_curves(state["train_loss"], state["val_loss"], model_path)
+                except Exception as e:
+                    print(f"Failed to plot loss curves: {e}")
+
         if test:
             metrics, y_true, y_pred = self.trainer_manager.evaluate()
             return self.model, metrics, y_true, y_pred

@@ -247,12 +247,17 @@ def main():
         default=[0.8, 1.4],
         help="Windows for train_from_scratch (default: 0.8 1.4)",
     )
+    
+    ap.add_argument("--plot_loss", action="store_true", help="Save loss curves plots after training")
 
     args = ap.parse_args()
 
     base_cfg = yaml.safe_load(args.base_config.read_text())
     model_cfg = yaml.safe_load(args.model_config.read_text())
     base_cfg = _apply_open_release_overrides(base_cfg, args.data_dir, args.artifacts_dir)
+    
+    # Pass plot_loss down through base_cfg
+    base_cfg["plot_loss"] = args.plot_loss
 
     ft_cfg = None
     if "inter_session_ft" in args.experiment:

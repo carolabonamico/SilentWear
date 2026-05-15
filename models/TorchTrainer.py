@@ -275,13 +275,20 @@ class TorchTrainer:
             avg_val_loss = running_loss_val / max(1, val_batches)
 
             # ----- Scheduler step (safe fallback) -----
+            current_lr = optimizer.param_groups[0]["lr"]
             if scheduler is not None:
                 if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                     # print("stepping scheduler ReduceLROnPlateau")
-                    current_lr = scheduler.get_last_lr()[0]
                     scheduler.step(avg_val_loss)
                 else:
                     scheduler.step()
+
+            if scheduler is not None and isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                print(f"{epoch} TRAIN loss: {avg_train_loss:.3f} | VAL loss: {avg_val_loss:.3f} | TRAIN ACC: {train_accuracy:.3f} | VAL ACC: {val_accuracy:.3f} | LR: {current_lr:.2e}")
+            else:
+                print(f"{epoch} TRAIN loss: {avg_train_loss:.3f} | VAL loss: {avg_val_loss:.3f} | TRAIN ACC: {train_accuracy:.3f} | VAL ACC: {val_accuracy:.3f}")
+            train_losses.append(avg_train_loss)
+            val_losses.append(avg_val_loss)
 
             # Early stopping bookkeeping (UNCHANGED)
             if avg_val_loss < best_val_loss:
@@ -301,18 +308,6 @@ class TorchTrainer:
                 if patience >= early_stop_patience:
                     print("Hit early stopping.")
                     break
-            if scheduler is not None and isinstance(
-                scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau
-            ):
-                print(
-                    f"{epoch} TRAIN loss: {avg_train_loss:.3f} | VAL loss: {avg_val_loss:.3f} | TRAIN ACC: {train_accuracy:.3f} | VAL ACC: {val_accuracy:.3f} | LR: {current_lr:.2e}"
-                )
-            else:
-                print(
-                    f"{epoch} TRAIN loss: {avg_train_loss:.3f} | VAL loss: {avg_val_loss:.3f} | TRAIN ACC: {train_accuracy:.3f} | VAL ACC: {val_accuracy:.3f}"
-                )
-            train_losses.append(avg_train_loss)
-            val_losses.append(avg_val_loss)
 
         epochs_ran = len(train_losses)  # how many epochs actually executed
         best_epoch_1based = (best_state["epoch"] + 1) if best_state is not None else None
@@ -327,8 +322,8 @@ class TorchTrainer:
                     "val_acc": val_accs,
                     "best_val_loss": best_val_loss,
                     "requested_num_epochs": int(num_epochs),
-                    "epochs_ran": int(epochs_ran),
-                    "best_epoch": int(best_epoch_1based),
+                    "epochs_ran": int(epochs_ran) if epochs_ran is not None else 0,
+                    "best_epoch": int(best_epoch_1based) if best_epoch_1based is not None else 0,
                     "early_stop_patience": int(early_stop_patience),
                 }
             )
