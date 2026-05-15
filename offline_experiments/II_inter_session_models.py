@@ -303,8 +303,8 @@ class Inter_Session_Model_Trainer:
         row_summary["train_idx"] = self.model_master.df_train.index.tolist()
         row_summary["val_idx"] = self.model_master.df_val.index.tolist()
         row_summary["test_idx"] = self.model_master.df_test.index.tolist()
-        row_summary["y_true"] = y_true.tolist()
-        row_summary["y_pred"] = y_pred.tolist()
+        row_summary["y_true"] = None if y_true is None else np.asarray(y_true).tolist()
+        row_summary["y_pred"] = None if y_pred is None else np.asarray(y_pred).tolist()
 
         return row_summary
 

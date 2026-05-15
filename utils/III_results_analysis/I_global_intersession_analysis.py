@@ -40,6 +40,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import math
 
 import numpy as np
 import pandas as pd
@@ -53,6 +54,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from utils.I_data_preparation.experimental_config import ORIGINAL_LABELS
 
+CM_LABEL_MODE = "both"   # "word", "code", or "both"
 
 # ----------------------------- helpers -----------------------------
 
@@ -272,6 +274,19 @@ def _get_display_labels(run_cfg_path: Path, n_classes: int) -> List[str]:
             
     return labels
 
+def _make_cm_labels(n_classes: int, mode: str) -> list[str]:
+    """Build tick labels for confusion matrix axes."""
+    labels = []
+    for i in range(n_classes):
+        word = ORIGINAL_LABELS.get(i, str(i))
+        if mode == "code":
+            labels.append(str(i))
+        elif mode == "word":
+            labels.append(word)
+        else:
+            labels.append(f"{i} {word}")
+    return labels
+
 # ----------------------------- main analysis -----------------------------
 
 
@@ -447,10 +462,13 @@ def main():
         print(summary_subjects[["subject", "model_run", "mean_std_perc"]])
         print(f"[SAVED] {out_csv}")
 
-        # Confusion matrices (2x2)
+        # Confusion matrices
         if args.plot_confusion_matrix:
-            n_subj = len(args.subjects)
-            nrows, ncols = 2, 2
+            active_subjects = [sub for sub in args.subjects if any(r.subject == sub for r in run_list)]
+            n_subj = len(active_subjects)
+            ncols = 2
+            nrows = math.ceil(n_subj / ncols)
+
             fig, axs = plt.subplots(
                 nrows,
                 ncols,
@@ -462,13 +480,13 @@ def main():
             fig.subplots_adjust(
                 left=0.12, right=0.98, top=0.92, bottom=0.10, wspace=0.08, hspace=0.25
             )
-            axs = np.atleast_2d(axs)
+            axs = np.atleast_2d(axs).reshape(nrows, ncols)
 
             row_images = {}
 
-            for idx, sub in enumerate(args.subjects):
-                row = idx // 2
-                col = idx % 2
+            for idx, sub in enumerate(active_subjects):
+                row = idx // ncols
+                col = idx % ncols
                 ax = axs[row, col]
 
                 rr = [r for r in run_list if r.subject == sub]
@@ -487,10 +505,10 @@ def main():
                 cm_mean, cm_std = mean_std_confusion_matrices(df[cm_col])
                 
                 n_classes = int(cm_mean.shape[0])
-                disp_labels = _get_display_labels(r.run_cfg_json, n_classes)
+                word_labels = _make_cm_labels(n_classes, CM_LABEL_MODE)
 
-                disp = ConfusionMatrixDisplay(confusion_matrix=cm_mean, display_labels=disp_labels)
-                disp.plot(ax=ax, cmap=plt.cm.Blues, colorbar=False, include_values=False)
+                disp = ConfusionMatrixDisplay(confusion_matrix=cm_mean, display_labels=word_labels)
+                disp.plot(ax=ax, cmap="Blues", colorbar=False, include_values=False)
 
                 # Force consistent scale
                 im = ax.images[0]
@@ -503,9 +521,9 @@ def main():
                 else:
                     title = sub
                 ax.set_title(title, fontsize=20)
-                ax.tick_params(axis="x", labelrotation=45, labelsize=15)
+                ax.tick_params(axis="x", labelrotation=45, labelsize=11)
                 ax.set_xticklabels(ax.get_xticklabels(), ha="right")
-                ax.tick_params(axis="y", labelsize=15)
+                ax.tick_params(axis="y", labelsize=11)
                 ax.set_xlabel("")
                 ax.set_ylabel("")
 
@@ -518,26 +536,32 @@ def main():
                 #     s = cm_std[i, j]
                 #     ax.text(j, i, f"{m:.2f}\n±{s:.2f}", ha="center", va="center", fontsize=10)
 
-            # turn off unused axes if fewer than 4 subjects
+            # turn off unused axes
             for k in range(n_subj, nrows * ncols):
-                axs.flatten()[k].axis("off")
+                ax_off = axs.flatten()[k]
+                ax_off.axis("off")
+                ax_off.set_visible(False)
 
             # one colorbar per row (left)
             for row in range(nrows):
                 if row in row_images:
+                    visible_axs = [axs[row, c] for c in range(ncols) if axs[row, c].get_visible()]
                     cbar = fig.colorbar(
-                        row_images[row], ax=axs[row, :], location="left", fraction=0.05, pad=0.15
+                        row_images[row], ax=visible_axs, location="left", fraction=0.05, pad=0.15
                     )
                     cbar.ax.tick_params(labelsize=15)
                     cbar.set_label("Accuracy", fontsize=15)
 
-            out_fig = (
+            out_fig_svg = (
                 figures_dir
-                / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}_cm_2x2.svg"
+                / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}_cm_{nrows}x{ncols}.svg"
             )
-            plt.savefig(out_fig, bbox_inches="tight", transparent=args.transparent)
+            out_fig_png = out_fig_svg.with_suffix(".png")
+            fig.savefig(out_fig_svg, bbox_inches="tight", transparent=args.transparent)
+            fig.savefig(out_fig_png, bbox_inches="tight", dpi=300, transparent=args.transparent)
             plt.close(fig)
-            print(f"[SAVED] {out_fig}")
+            print(f"[SAVED] {out_fig_svg}")
+            print(f"[SAVED] {out_fig_png}")
 
 
 if __name__ == "__main__":

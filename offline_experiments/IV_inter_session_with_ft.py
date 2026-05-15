@@ -289,7 +289,7 @@ def run_ft_for(
                     .index.values
                 )
                 idx_to_drop = np.setdiff1d(idx_rest, index_rest_ds)
-                df_batch = df_batch.drop(index=idx_to_drop)
+                df_batch = df_batch.drop(index=idx_to_drop.tolist())
 
             df_train, df_val = train_test_split(
                 df_batch,
@@ -310,9 +310,13 @@ def run_ft_for(
             )
 
             metrics_before = model_fine_tuner.test_zero_shot_acc()
+            if metrics_before is None:
+                raise ValueError("Zero-shot metrics are missing.")
             batch_loader = model_fine_tuner.model_master.trainer_manager.test_loader
             strategy = model_fine_tuner.model_master.trainer_manager.strategy
             metrics_without_ft, _, _ = evaluate_model(model_intersess, batch_loader, strategy)
+            if metrics_without_ft is None:
+                raise ValueError("Metrics without FT are missing.")
 
             row = {
                 "subject": sub,

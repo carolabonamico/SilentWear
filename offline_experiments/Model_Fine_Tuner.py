@@ -70,13 +70,17 @@ class Model_Fine_Tuner:
         )
 
         # Load directly into the *existing* model object that the trainer references
-        missing, unexpected = self.model_master.model.load_state_dict(state_dict, strict=False)
+        if self.model_master.trainer_manager is not None:
+            if self.model_master.model is None:
+                raise ValueError("Model is not initialized in model_master.")
+                
+            missing, unexpected = self.model_master.model.load_state_dict(state_dict, strict=False)
 
-        print(f"Missing keys: {len(missing)} | Unexpected keys: {len(unexpected)}")
-        if len(missing) < 20 and missing:
-            print("  missing:", missing)
-        if len(unexpected) < 20 and unexpected:
-            print("  unexpected:", unexpected)
+            print(f"Missing keys: {len(missing)} | Unexpected keys: {len(unexpected)}")
+            if len(missing) < 20 and missing:
+                print("  missing:", missing)
+            if len(unexpected) < 20 and unexpected:
+                print("  unexpected:", unexpected)
 
         print("Model weights loaded successfully")
         return self.model_master.model
@@ -97,6 +101,10 @@ class Model_Fine_Tuner:
 
     def test_zero_shot_acc(self):
         print("Accuracy before starting fine tuning:")
+        
+        if self.model_master.trainer_manager is None:
+            raise ValueError("Trainer manager is not initialized.")
+
         zero_shot_test_df = pd.concat((self.model_master.df_train, self.model_master.df_val))
         self.model_master.trainer_manager.test_loader = (
             self.model_master.trainer_manager.create_dataloader_from_df(
@@ -110,6 +118,9 @@ class Model_Fine_Tuner:
 
         # Train the models
         # Check accuracy before starting the fine tuning process
+
+        if self.model_master.trainer_manager is None:
+            raise ValueError("Trainer manager is not initialized. Cannot perform fine tuning.")
 
         # For now - easy implementation - fine tune all layers
         self.model_master.trainer_manager.fit(

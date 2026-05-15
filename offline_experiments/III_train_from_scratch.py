@@ -262,6 +262,8 @@ def run_train_from_scratch_for(
             )
 
             metrics_before = model_fine_tuner.test_zero_shot_acc()
+            if metrics_before is None:
+                raise ValueError("Zero-shot metrics are missing.")
 
             row = {
                 "subject": sub,
