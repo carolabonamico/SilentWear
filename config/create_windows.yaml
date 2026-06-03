@@ -9,6 +9,10 @@ conditions:
   vocalized: vocalized
 window:
   window_size_s: 1.4
+data_augmentation:
+  mode: sliding_window    # use 'disabled' for no augmentation
+  stride_ms: 10
+  num_strides: 2
 feature_extraction:
   manual_feature_extraction: false
   num_subwindows: 7
