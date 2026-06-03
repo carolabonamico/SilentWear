@@ -15,7 +15,7 @@ from visualizations import *
 
 # ================ USER_EDITABLE =========================
 
-DATA_DIRECTORY = Path(r"... path_to_your_data")
+DATA_DIRECTORY = Path(r"path/to/your/data")
 sub_ids = ["S01", "S02", "S03", "S04"]
 # sub_ids = ["S01"]
 process_all = True

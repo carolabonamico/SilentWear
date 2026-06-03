@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.I_data_preparation.experimental_config import FS, label_to_word_map
-from taper_fig import get_sorted_channel_cols, short_labels, plot_stacked_channels_in_cell
+from taper_fig import plot_stacked_channels_in_cell
 from fig_config import channel_colors, neckband_ch_order
 
 
