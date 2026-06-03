@@ -47,7 +47,7 @@ class Global_Model_Trainer:
     def __init__(self, base_config: dict, model_config: dict) -> None:
         self.base_config = deepcopy(base_config)
         self.model_config = deepcopy(model_config)
-        self.model_master: Optional[Model_Master] = None
+        self.model_master: Optional["Model_Master"] = None
 
         self.sub_id = self.base_config["data"]["subject_id"]
         if isinstance(self.sub_id, str):
@@ -171,6 +171,10 @@ class Global_Model_Trainer:
                 )
 
     def _save_run_cfg(self) -> None:
+        train_cfg = self.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {})
+        loss_name = str(train_cfg.get("loss_name", "unknown_loss"))
+        loss_cfg = train_cfg.get("loss", None)
+
         run_cfg_dict = {
             "condition": self.condition,
             "experiment_type": "global",
@@ -178,7 +182,11 @@ class Global_Model_Trainer:
                 "window_size_ms": self.window_size_ms,
                 "include_rest": self.include_rest,
                 "cv_type": self.base_config.get("cv", {}),
+                "loss_name": loss_name,
+                "loss_cfg": loss_cfg,
             },
+            "loss_name": loss_name,
+            "loss_cfg": loss_cfg,
             "model_cfg": self.model_config,
             "base_cfg": self.base_config,
             "seeds": {
@@ -196,7 +204,7 @@ class Global_Model_Trainer:
         Run CV according to the mode specified in the configuration file.
         """
         cv_cfg = self.base_config.get("cv", {})
-        mode = cv_cfg.get("global_cv_mode", "leave_one_batch_out")
+        mode = str(cv_cfg.get("mode", "leave_one_batch_out")).strip().lower()
         val_size = float(cv_cfg.get("val_size", 0.3))
         n_splits = int(cv_cfg.get("n_splits", 5))
         seed = int(self.base_config["experiment"]["seed"])
@@ -214,7 +222,7 @@ class Global_Model_Trainer:
         elif mode == "stratified_session_label":
             return self._cv_stratified_session_label(df, n_splits=n_splits, val_size=val_size, seed=seed)
         else:
-            raise ValueError(f"Unknown global_cv_mode='{mode}'")
+            raise ValueError(f"Unknown mode='{mode}'")
         
     def _cv_stratified_session_label(
         self, df: pd.DataFrame, n_splits: int = 5, val_size: float = 0.2, seed: int = 0
@@ -222,52 +230,61 @@ class Global_Model_Trainer:
         """
         CV mode where each fold has the same proportion of samples for each session_id/label combination.
         """
+        reset_all_seeds()
+        
         from sklearn.model_selection import StratifiedKFold
         
         self.cv_summaries = []
 
+        df_base = base_window_rows(df)
+
         # Each fold has the same proportion of samples for each session_id/label combination
-        stratify_key = df["session_id"].astype(str) + "_" + df["Label_int"].astype(str)
+        stratify_key = df_base["session_id"].astype(str) + "_" + df_base["Label_int"].astype(str)
 
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
         # N fold division (Train+Val / Test)
-        for fold_id, (train_val_idx, test_idx) in enumerate(skf.split(df, stratify_key)):
+        for fold_id, (train_val_idx, test_idx) in enumerate(skf.split(df_base, stratify_key)):
             print(f"\n--- FOLD {fold_id+1}/{n_splits} ---")
 
             # Isolating the Test set
-            train_val_data = df.iloc[train_val_idx].copy()
-            test_data = df.iloc[test_idx].copy()
+            train_val_base = df_base.iloc[train_val_idx].copy()
+            test_data = df_base.iloc[test_idx].copy()
 
             # Balancing "rest" class only on Train+Val group
             if self.include_rest:
                 # Finds the minimum number of samples among classes (excluding 'rest' if necessary)
-                min_samples = train_val_data["Label_int"].value_counts().min()
+                min_samples = train_val_base["Label_int"].value_counts().min()
                 
-                idx_rest = train_val_data[train_val_data["Label_str"] == "rest"].index.values
+                idx_rest = train_val_base[train_val_base["Label_str"] == "rest"].index.values
                 index_rest_ds = (
-                    train_val_data[train_val_data["Label_str"] == "rest"]
+                    train_val_base[train_val_base["Label_str"] == "rest"]
                     .sample(n=min_samples, random_state=seed)
                     .index.values
                 )
                 idx_to_drop = np.setdiff1d(idx_rest, index_rest_ds)
-                train_val_data = train_val_data.drop(index=idx_to_drop)
+                train_val_base = train_val_base.drop(index=idx_to_drop)
 
             # Final split between Train and Validation
             # We regenerate the stratification key for the reduced Train+Val pool
             stratify_train_val = (
-                train_val_data["session_id"].astype(str) + "_" + 
-                train_val_data["Label_int"].astype(str)
+                train_val_base["session_id"].astype(str) + "_" + 
+                train_val_base["Label_int"].astype(str)
             )
             
-            train_data, val_data = train_test_split(
-                train_val_data,
+            train_base, val_data = train_test_split(
+                train_val_base,
                 test_size=val_size,
                 shuffle=True,
                 random_state=seed,
                 stratify=stratify_train_val
             )
 
+            train_data = training_rows_with_augmentation(df, train_base)
+            
+            print(f"\n[DEBUG] Original rows passed (train_base): {len(train_base)}")
+            print(f"[DEBUG] Final rows for training (after augmentation): {len(train_data)}")
+            
             # fold execution
             row_summary = self._run_one_fold(
                 fold_id=fold_id,
@@ -285,33 +302,42 @@ class Global_Model_Trainer:
         self, df: pd.DataFrame, val_size: float = 0.3, seed: int = 0
     ) -> List[Dict[str, Any]]:
         print("lobo")
+        
+        reset_all_seeds()
+        
         self.cv_summaries = []
-        batches = df["batch_id"].unique()
+        df_base = base_window_rows(df)
+        batches = df_base["batch_id"].unique()
 
         for fold_id, test_batch_id in enumerate(batches):
             print(f"\n\n=== LOBO FOLD {fold_id+1}/{len(batches)} | test_batch={test_batch_id} ===")
 
-            train_val_data = df[df["batch_id"] != test_batch_id]
-            test_data = df[df["batch_id"] == test_batch_id]
+            train_val_base = df_base[df_base["batch_id"] != test_batch_id]
+            test_data = df_base[df_base["batch_id"] == test_batch_id]
 
             if self.include_rest:
-                min_samples = train_val_data["Label_int"].value_counts().min()
-                idx_rest = train_val_data[train_val_data["Label_str"] == "rest"].index.values
+                min_samples = train_val_base["Label_int"].value_counts().min()
+                idx_rest = train_val_base[train_val_base["Label_str"] == "rest"].index.values
                 index_rest_ds = (
-                    train_val_data[train_val_data["Label_str"] == "rest"]
+                    train_val_base[train_val_base["Label_str"] == "rest"]
                     .sample(n=min_samples, random_state=seed)
                     .index.values
                 )
                 idx_to_drop = np.setdiff1d(idx_rest, index_rest_ds)
-                train_val_data = train_val_data.drop(index=idx_to_drop)
+                train_val_base = train_val_base.drop(index=idx_to_drop)
 
-            train_data, val_data = train_test_split(
-                train_val_data,
+            train_base, val_data = train_test_split(
+                train_val_base,
                 test_size=val_size,
                 shuffle=True,
                 random_state=seed,
-                stratify=train_val_data["Label_int"],
+                stratify=train_val_base["Label_int"],
             )
+
+            train_data = training_rows_with_augmentation(df, train_base)
+
+            print(f"\n[DEBUG] Original rows passed (train_base): {len(train_base)}")
+            print(f"[DEBUG] Final rows for training (after augmentation): {len(train_data)}")
 
             row_summary = self._run_one_fold(
                 fold_id=fold_id,
@@ -334,6 +360,21 @@ class Global_Model_Trainer:
         mode: str,
         test_batch_id: Optional[int] = None,
     ) -> Dict[str, Any]:
+        
+        reset_all_seeds()
+        
+        sub_id_str = str(self.sub_id) if not isinstance(self.sub_id, list) else "all"
+        model_cfg = self.model_config.setdefault("model", {})
+        model_kwargs = model_cfg.setdefault("kwargs", {})
+        train_cfg = model_kwargs.get("train_cfg")
+
+        if train_cfg is not None:
+            train_cfg["fold_id"] = fold_id + 1
+            train_cfg["sub_id"] = sub_id_str
+            train_cfg["condition"] = self.condition
+        elif str(model_cfg.get("kind", "")).strip().lower() == "dl":
+            raise KeyError("Missing config key: model.kwargs.train_cfg for deep-learning global runs.")
+        
         self.model_master = Model_Master(self.base_config, self.model_config)
         self.model_master.df_train = train_df
         self.model_master.df_val = val_df
@@ -361,14 +402,20 @@ class Global_Model_Trainer:
             "cv_mode": mode,
             "fold_num": int(fold_id + 1),
             "test_batch": int(test_batch_id) if test_batch_id is not None else None,
+            "subject_id": str(self.model_master.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {}).get("sub_id", "unknown")),
+            "condition": str(self.model_master.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {}).get("condition", "unknown")),
         }
 
         if metrics is not None:
+            log_metrics = {}
+            sub_id = row_summary["subject_id"]
+            condition = row_summary["condition"]
             for k, v in metrics.items():
                 if isinstance(v, (np.ndarray, list, tuple)):
                     row_summary[k] = json.dumps(np.asarray(v).tolist())
-                elif isinstance(v, (np.floating,)):
+                elif isinstance(v, (float, int, np.floating, np.integer)):
                     row_summary[k] = float(v)
+                    log_metrics[f"metrics/{sub_id}/{condition}/fold_{fold_id+1}/{k}"] = float(v)
                 else:
                     row_summary[k] = v
 

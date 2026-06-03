@@ -11,6 +11,7 @@ File Containing Main Model Fine Tuner Class
 import sys
 from pathlib import Path
 import pandas as pd
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from offline_experiments.Model_Master import Model_Master
@@ -22,7 +23,7 @@ class Model_Fine_Tuner:
         self,
         base_cfg: dict,
         model_cfg: dict,
-        model_to_ft_path: Path,
+        model_to_ft_path: Path | None,
         new_model_save_path: Path,
         ft_cfg_settings: dict,
         df_for_ft_train: pd.DataFrame,

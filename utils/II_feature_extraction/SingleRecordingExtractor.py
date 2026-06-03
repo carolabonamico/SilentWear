@@ -46,6 +46,7 @@ The HDF5 file must contain:
 import pandas as pd
 from pathlib import Path
 import sys
+from tqdm import tqdm
 
 from typing import Dict, Optional, Set
 
@@ -67,6 +68,7 @@ class Single_Recording_Windower_and_Feature_Extractor:
         h5_file_path: Path,
         window_size_s: float,
         manual_feature_extraction: bool,
+        data_augmentation: Optional[dict] = None,
         num_subwindows: Optional[int] = None,
     ) -> None:
         pass
@@ -81,6 +83,7 @@ class Single_Recording_Windower_and_Feature_Extractor:
 
         self.window_size_s = window_size_s
         self.manual_feature_extraction = manual_feature_extraction
+        self.data_augmentation = data_augmentation
         if self.manual_feature_extraction:
             self.num_subwin = num_subwindows
         else:
@@ -279,51 +282,83 @@ class Single_Recording_Windower_and_Feature_Extractor:
         if self.num_subwin is not None:
             sample_per_small_window = sample_per_big_window // self.num_subwin
 
+        # Data Augmentation Configuration
+        aug_config = self.data_augmentation or {}
+
+        augmentation_mode = str(aug_config.get("mode", "disabled")).lower()
+        stride_ms = aug_config.get("stride_ms", 10)
+        num_strides = aug_config.get("num_strides", 10)
+
+        stride_samples = int((stride_ms * FS) / 1000)
+        
+        if augmentation_mode == "sliding_window":
+            augmentation_offsets = [(0, "base")]
+            augmentation_offsets += [(-step * stride_samples, "backward") for step in range(1, num_strides + 1)]
+            augmentation_offsets += [(step * stride_samples, "forward") for step in range(1, num_strides + 1)]
+        elif augmentation_mode == "disabled":
+            augmentation_offsets = [(0, "base")]
+        else:
+            raise NotImplementedError(f"Unsupported data_augmentation mode: {augmentation_mode}")
+
         mask_ch = df.columns.str.contains("^Ch_")
         ch_cols = df.columns[mask_ch]
         mask_filt = ch_cols.str.contains("_filt")
         filt_cols = ch_cols[mask_filt]
 
-        feature_data = []
-        for _, seg in seg_df.iterrows():
+        # Converting to NumPy array once and slicing it.
+        ch_indices = [df.columns.get_loc(c) for c in filt_cols]
+        df_numpy = df.values
 
+        feature_data = []
+        total_segments = len(seg_df)
+        print(f"\n[DEBUG] Starting extraction of {total_segments} segments. (Augmentation mode: {augmentation_mode})")
+
+        for index, seg in tqdm(seg_df.iterrows(), total=total_segments, desc="Analyzed segments"):
             start_idx = int(seg["start_idx"])
             end_seg = int(seg["end_idx"])  # end of the run (exclusive)
 
-            end_idx = (
-                start_idx + sample_per_big_window - 1
-            )  # since we work with pandas, loc includes last
-            if end_idx >= df.index[-1]:
-                continue
+            for shift_samples, shift_direction in augmentation_offsets:
+                augmented_start_idx = start_idx + shift_samples
+                end_idx = augmented_start_idx + sample_per_big_window - 1             
+                if augmented_start_idx < 0 or end_idx >= len(df):
+                    continue
 
-            # ======= Extract Features Manually ==============
-            feature_row = {}
-            if self.manual_feature_extraction:
-                feature_row = self.extract_features_per_word(
-                    df,
-                    filt_cols,
-                    start_idx,
-                    sample_per_big_window,
-                    sample_per_small_window,
-                )
+                # ======= Extract Features Manually ==============
+                feature_row = {}
+                if self.manual_feature_extraction:
+                    feature_row = self.extract_features_per_word(
+                        df,
+                        filt_cols,
+                        augmented_start_idx,
+                        sample_per_big_window,
+                        sample_per_small_window,
+                    )
 
-            # ---- Add metadata ----
-            feature_row["Label_int"] = seg["label_int"]
-            feature_row["Label_str"] = seg["label_str"]
+                # ---- Add metadata ----
+                subject_id = self.h5_file.parents[1].name
+                condition = self.h5_file.parent.name
+                feature_row["Label_int"] = seg["label_int"]
+                feature_row["Label_str"] = seg["label_str"]
+                feature_row["subject_id"] = subject_id
+                feature_row["condition"] = condition
 
-            feature_row["batch_id"] = df["batch_id"].unique()[0]
-            feature_row["session_id"] = df["session_id"].unique()[0]
+                feature_row["batch_id"] = df["batch_id"].unique()[0]
+                feature_row["session_id"] = df["session_id"].unique()[0]
+                feature_row["augmentation_source_id"] = (f"{subject_id}_{condition}_{feature_row['session_id']}_{feature_row['batch_id']}_{start_idx}")
+                feature_row["augmentation_direction"] = shift_direction
+                feature_row["augmentation_shift_ms"] = int((shift_samples * 1000) / FS)
 
-            # ---- Add start/stop indices for this big window ----
-            feature_row["start_idx"] = start_idx
-            feature_row["end_idx"] = end_idx
+                # ---- Add start/stop indices for this big window ----
+                feature_row["start_idx"] = augmented_start_idx
+                feature_row["end_idx"] = end_idx
 
-            # ========= Extract Entire Windows ====================
+                # ========= Extract Entire Windows ====================
+                
+                for ch, ch_idx in zip(filt_cols, ch_indices):
+                    feature_row[ch] = df_numpy[augmented_start_idx : end_idx + 1, ch_idx]
 
-            for ch in filt_cols:
-                feature_row[ch] = df.loc[start_idx:end_idx, ch].values
-
-            feature_data.append(feature_row)
+                feature_data.append(feature_row)
+                
         return pd.DataFrame(feature_data)
 
     def process_single_recording(self, valid_labels=label_to_word_map.keys()):

@@ -34,6 +34,7 @@ class SubjectConfig:
         # self.vocalized_dir = self.processed_dir / "vocalized"
 
         self.window_size_s = cfg["window"]["window_size_s"]
+        self.data_augmentation = cfg.get("data_augmentation")
 
         self.manual_feature_extraction = cfg["feature_extraction"]["manual_feature_extraction"]
         self.num_subwindows = cfg["feature_extraction"]["num_subwindows"]
@@ -112,7 +113,7 @@ def load_all_h5files_from_folder(
     This function also prints basic statistics about loaded sessions, batches, and labels.
     """
     # 1. Find all HDF5 files
-    h5_files = list(data_directory.rglob("*.h5"))
+    h5_files = sorted(list(data_directory.rglob("*.h5")))
 
     if len(h5_files) == 0:
         print(f"No .h5 files found in: {data_directory}")
@@ -241,3 +242,9 @@ def plot_loss_curves(train_loss, val_loss, save_model_path: Path):
             print(f"Saved loss curves to {fig_path}")
     except Exception as e:
         print(f"Error saving loss plot: {e}")
+
+
+def window_ms_from_cfg(cfg: dict) -> int:
+    """Convert window size from seconds (in config) to milliseconds."""
+    w_s = float(cfg["window"]["window_size_s"])
+    return int(round(w_s * 1000))

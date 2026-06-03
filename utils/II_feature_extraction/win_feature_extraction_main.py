@@ -64,6 +64,7 @@ class Global_Windower_and_Feature_Extractor:
         self.dire_wins_feats_vocalized = None
         self.win_size_sec = subject_config.window_size_s
         self.num_subwins = subject_config.num_subwindows
+        self.data_augmentation = getattr(subject_config, 'data_augmentation', None)
 
     def find_all_processed_h5(self):
         "Function to return all h5 files contained in the processed directory"
@@ -113,6 +114,7 @@ class Global_Windower_and_Feature_Extractor:
         for curr_h5_file in h5_files:
             print("Processing file:", curr_h5_file)
 
+            df_save_path = None
             if self.save_data:
                 if curr_h5_file.parent.name == "silent":
                     print("Silent recording")
@@ -122,18 +124,19 @@ class Global_Windower_and_Feature_Extractor:
                 print("Dataset will be saved at:", df_save_path)
 
             # check if the file already exists
-            if df_save_path.exists() == False:
+            if not self.save_data or (df_save_path is not None and not df_save_path.exists()):
 
                 single_rec_win_feat = Single_Recording_Windower_and_Feature_Extractor(
                     data_directory=self.data_directory,
                     h5_file_path=curr_h5_file,
                     window_size_s=self.win_size_sec,
                     manual_feature_extraction=self.manual_feature_extraction,
+                    data_augmentation=self.data_augmentation,         
                     num_subwindows=self.num_subwins,
                 )
 
                 df_wins_feats = single_rec_win_feat.process_single_recording()
-                if self.save_data:
+                if self.save_data and df_save_path is not None:
                     df_wins_feats.to_hdf(df_save_path, key="wins_feats", mode="w")
 
                 print(

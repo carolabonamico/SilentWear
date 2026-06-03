@@ -47,7 +47,7 @@ class TorchTrainer:
         """
         Function to create a dataloader from a given df.
         """
-        if df is None or df.empty is None:
+        if df is None or df.empty:
             return None
         X_df = df.drop(columns=self.label_col)
         print(X_df.columns)

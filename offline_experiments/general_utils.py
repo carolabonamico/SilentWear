@@ -12,9 +12,13 @@ import sys
 from pathlib import Path
 import re
 import json
-import datetime
+from datetime import datetime
+import torch
+import numpy as np
+import random
 
 import yaml
+import pandas as pd
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +26,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from utils.II_feature_extraction.FeatExtractorManager import FeatureRegistry
+from models.seeds import TORCH_MANUAL_SEED, RANDOM_SEED, RGN_SEED
 
 #################################### Utils for Data Preparation ######################################
 
@@ -206,3 +211,33 @@ def check_data_directories(
         )
 
     return data_dirs
+
+
+def base_window_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Returns only the rows corresponding to the base window (i.e., no augmentation)."""
+    if "augmentation_direction" not in df.columns:
+        return df.copy()
+    return df[df["augmentation_direction"] == "base"].copy()
+
+
+def training_rows_with_augmentation(full_df: pd.DataFrame, train_base_df: pd.DataFrame) -> pd.DataFrame:
+    """Returns the rows corresponding to the training windows, including augmented ones."""
+    if "augmentation_source_id" not in full_df.columns:
+        return train_base_df.copy()
+    train_source_ids = train_base_df["augmentation_source_id"].drop_duplicates()
+    return full_df[full_df["augmentation_source_id"].isin(train_source_ids)].copy()
+
+
+def reset_all_seeds():
+    """
+    Resets all random seeds for PyTorch, NumPy, and Python's random module
+    to ensure deterministic behavior for experiments.
+    """
+    torch.manual_seed(TORCH_MANUAL_SEED)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(TORCH_MANUAL_SEED)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        
+    np.random.seed(RGN_SEED)
+    random.seed(RANDOM_SEED)

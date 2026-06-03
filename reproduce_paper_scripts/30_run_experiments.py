@@ -20,6 +20,8 @@ Supported experiment types
 - inter_session
 - inter_session_ft
 - train_from_scratch
+- data_augmentation_ablation
+- session_count_ablation
 
 Reproducibility Guarantees
 --------------------------
@@ -69,11 +71,17 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from utils.general_utils import window_ms_from_cfg
 from offline_experiments.I_global_models import Global_Model_Trainer
 from offline_experiments.II_inter_session_models import Inter_Session_Model_Trainer
 from offline_experiments.III_train_from_scratch import TrainFromScratch_Model_Trainer
 from offline_experiments.IV_inter_session_with_ft import FineTuning_Model_Trainer
+from offline_experiments.V_sessions_count_ablation import Session_Count_Ablation_Trainer
+from offline_experiments.VI_data_augmentation_ablation import Data_Augmentation_Ablation_Trainer
 
+DEFAULT_EXPERIMENTS = ["global", "inter_session", "inter_session_ft", "train_from_scratch", "data_augmentation_ablation", "session_count_ablation"]
+DEFAULT_SUBJECTS = ["S01", "S02", "S03", "S04"]
+DEFAULT_CONDITIONS = ["silent", "vocalized"]
 
 def _apply_open_release_overrides(base_cfg: dict, data_dir: Path, artifacts_dir: Path) -> dict:
     """Override all path-like entries for open-source execution."""
@@ -82,11 +90,6 @@ def _apply_open_release_overrides(base_cfg: dict, data_dir: Path, artifacts_dir:
     base_cfg["data"]["data_directory"] = str(data_dir)
     base_cfg["data"]["models_main_directory"] = str(artifacts_dir)
     return base_cfg
-
-
-def _window_ms_from_cfg(cfg: dict) -> int:
-    w_s = float(cfg["window"]["window_size_s"])
-    return int(round(w_s * 1000))
 
 
 def _set_model_name_id_everywhere(cfg: dict, model_name_id: str) -> dict:
@@ -151,7 +154,7 @@ def _run_one_subject_condition(
     cfg_run["data"]["subject_id"] = sub
     cfg_run["condition"] = cond
 
-    window_ms = _window_ms_from_cfg(cfg_run)
+    window_ms = window_ms_from_cfg(cfg_run)
     model_name_id = f"w{window_ms}ms"
     cfg_run = _set_model_name_id_everywhere(cfg_run, model_name_id)
 
@@ -180,7 +183,6 @@ def _run_one_subject_condition(
         trainer = FineTuning_Model_Trainer(
             base_config=cfg_run, model_config=model_cfg, ft_cfg=ft_cfg_local
         )
-        # your fixed version: trainer.main() exists and returns Path
         if hasattr(trainer, "main"):
             trainer.main()
         return
@@ -191,7 +193,6 @@ def _run_one_subject_condition(
         tfs_cfg_local = deepcopy(tfs_cfg)
         tfs_cfg_local["model_name_id"] = model_name_id
         print(f"\n=== TRAIN-FROM-SCRATCH | {sub} | {cond} | {model_name_id} ===")
-        # your fixed TFS trainer runs full sweep in __init__
         trainer = TrainFromScratch_Model_Trainer(
             base_config=cfg_run, model_config=model_cfg, tfs_cfg=tfs_cfg_local
         )
@@ -212,15 +213,16 @@ def main():
     ap.add_argument(
         "--experiment",
         nargs="+",
-        choices=["global", "inter_session", "inter_session_ft", "train_from_scratch"],
+        choices=DEFAULT_EXPERIMENTS,
         default=["inter_session"],
     )
 
     ap.add_argument("--ft_config", type=Path, default=None)
     ap.add_argument("--tfs_config", type=Path, default=None)
+    ap.add_argument("--window_config", type=Path, default=None, help="Window config for ablation")
 
-    ap.add_argument("--subjects", nargs="+", default=["S01", "S02", "S03", "S04"])
-    ap.add_argument("--conditions", nargs="+", default=["silent", "vocalized"])
+    ap.add_argument("--subjects", nargs="+", default=DEFAULT_SUBJECTS)
+    ap.add_argument("--conditions", nargs="+", default=DEFAULT_CONDITIONS)
 
     # Inter-session ablation controls
     ap.add_argument(
@@ -248,7 +250,18 @@ def main():
         help="Windows for train_from_scratch (default: 0.8 1.4)",
     )
     
-    ap.add_argument("--plot_loss", action="store_true", help="Save loss curves plots after training")
+    # Data augmentation ablation parameters
+    ap.add_argument("--aug_windows_s", nargs="*", type=float, default=[1.4])
+    ap.add_argument("--stride_ms", nargs="*", type=int, default=[10])
+    ap.add_argument("--num_strides", nargs="*", type=int, default=[2, 5, 10])
+    
+    # Session count ablation parameters
+    ap.add_argument("--session_windows_s", nargs="*", type=float, default=[1.4])
+    ap.add_argument("--min_sessions", type=int, default=1, help="Minimum number of sessions to start with")
+
+    # Plotting flags
+    ap.add_argument("--plot_loss", action="store_true", help="Save epoch-by-epoch training/val loss curves")
+    ap.add_argument("--plot_scatter", action="store_true", help="Generate final scatter plots for ablation results")
 
     args = ap.parse_args()
 
@@ -256,7 +269,7 @@ def main():
     model_cfg = yaml.safe_load(args.model_config.read_text())
     base_cfg = _apply_open_release_overrides(base_cfg, args.data_dir, args.artifacts_dir)
     
-    # Pass plot_loss down through base_cfg
+    # Propagate the loss plotting flag to internal trainers
     base_cfg["plot_loss"] = args.plot_loss
 
     ft_cfg = None
@@ -273,6 +286,40 @@ def main():
 
     # Expand inter-session ablation windows
     inter_session_windows = _expand_windows_s(args.inter_session_windows_s, step=args.window_step_s)
+    
+    if "data_augmentation_ablation" in args.experiment:
+        if args.window_config is None:
+            raise ValueError("data_augmentation_ablation requires --window_config to be set")
+        window_cfg = yaml.safe_load(args.window_config.read_text())
+        
+        trainer = Data_Augmentation_Ablation_Trainer(
+            base_config=base_cfg,
+            model_config=model_cfg,
+            window_config=window_cfg,
+            data_dir=args.data_dir,
+            artifacts_dir=args.artifacts_dir,
+            subjects=args.subjects,
+            conditions=args.conditions,
+            experiments=["global", "inter_session"],
+            windows_s=args.aug_windows_s,
+            stride_ms=args.stride_ms,
+            num_strides=args.num_strides
+        )
+        trainer.main()
+
+    if "session_count_ablation" in args.experiment:
+        trainer = Session_Count_Ablation_Trainer(
+            base_config=base_cfg,
+            model_config=model_cfg,
+            data_dir=args.data_dir,
+            artifacts_dir=args.artifacts_dir,
+            subjects=args.subjects,
+            conditions=args.conditions,
+            experiments=["global", "inter_session"],
+            min_sessions=args.min_sessions,
+            windows_s=args.session_windows_s
+        )
+        trainer.main()
 
     if "global" in args.experiment:
         for sub in args.subjects:

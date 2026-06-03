@@ -47,7 +47,7 @@ from models.TorchTrainer import evaluate_model
 from models.utils import load_pretrained_model
 from offline_experiments.Model_Fine_Tuner import Model_Fine_Tuner
 from offline_experiments.II_inter_session_models import Inter_Session_Model_Trainer
-from offline_experiments.general_utils import check_data_directories
+from offline_experiments.general_utils import base_window_rows, check_data_directories, training_rows_with_augmentation
 from utils.general_utils import load_subjects_data, open_file
 
 
@@ -279,25 +279,28 @@ def run_ft_for(
             new_model_save_path = model_ft_base_folder / f"fold_{fold_id}_ft_{batch_id}.pt"
 
             df_batch = df_test_session[df_test_session["batch_id"] == batch_id]
+            df_batch_base = base_window_rows(df_batch)
 
             if base_cfg_used["experiment"].get("include_rest", False):
-                min_samples = df_batch["Label_int"].value_counts().min()
-                idx_rest = df_batch[df_batch["Label_str"] == "rest"].index.values
+                min_samples = df_batch_base["Label_int"].value_counts().min()
+                idx_rest = df_batch_base[df_batch_base["Label_str"] == "rest"].index.values
                 index_rest_ds = (
-                    df_batch[df_batch["Label_str"] == "rest"]
+                    df_batch_base[df_batch_base["Label_str"] == "rest"]
                     .sample(n=min_samples, random_state=base_cfg_used["experiment"]["seed"])
                     .index.values
                 )
                 idx_to_drop = np.setdiff1d(idx_rest, index_rest_ds)
-                df_batch = df_batch.drop(index=idx_to_drop.tolist())
+                df_batch_base = df_batch_base.drop(index=idx_to_drop.tolist())
 
-            df_train, df_val = train_test_split(
-                df_batch,
+            df_train_base, df_val = train_test_split(
+                df_batch_base,
                 test_size=0.3,
                 shuffle=True,
                 random_state=42,
-                stratify=df_batch["Label_int"],
+                stratify=df_batch_base["Label_int"],
             )
+
+            df_train = training_rows_with_augmentation(df_batch, df_train_base)
 
             model_fine_tuner = Model_Fine_Tuner(
                 base_cfg=base_cfg_used,

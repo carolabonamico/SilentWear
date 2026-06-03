@@ -42,6 +42,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from offline_experiments.Model_Master import Model_Master
 from models.seeds import RGN_SEED, TORCH_MANUAL_SEED, RANDOM_SEED
 from utils.general_utils import load_all_h5files_from_folder, print_dataset_summary_statistics
+from offline_experiments.general_utils import base_window_rows, training_rows_with_augmentation, reset_all_seeds
 
 
 class Inter_Session_Model_Trainer:
@@ -188,6 +189,10 @@ class Inter_Session_Model_Trainer:
                 )
 
     def _save_run_cfg(self) -> None:
+        train_cfg = self.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {})
+        loss_name = str(train_cfg.get("loss_name", "unknown_loss"))
+        loss_cfg = train_cfg.get("loss", None)
+
         run_cfg_dict = {
             "condition": self.condition,
             "experiment_type": self.experiment_subdir,
@@ -195,8 +200,12 @@ class Inter_Session_Model_Trainer:
                 "window_size_ms": self.window_size_ms,
                 "include_rest": self.include_rest,
                 "cv_type": self.base_config.get("cv", {}),
+                "loss_name": loss_name,
+                "loss_cfg": loss_cfg,
             },
             "subject": self.sub_id,
+            "loss_name": loss_name,
+            "loss_cfg": loss_cfg,
             "model_cfg": self.model_config,
             "base_cfg": self.base_config,
             "seeds": {
@@ -211,34 +220,37 @@ class Inter_Session_Model_Trainer:
 
     def run_inter_session_cv(self, val_size: float = 0.3, seed: int = 0) -> List[Dict[str, Any]]:
         self.cv_summaries = []
-        sessions = np.sort(self.df["session_id"].unique())
+        df_base = base_window_rows(self.df)
+        sessions = np.sort(df_base["session_id"].unique())
 
         for fold_id, test_session_id in enumerate(sessions):
             print(
                 f"\n\n=== LOSO FOLD {fold_id+1}/{len(sessions)} | test_session={test_session_id} ==="
             )
 
-            train_val_data = self.df[self.df["session_id"] != test_session_id]
-            test_data = self.df[self.df["session_id"] == test_session_id]
+            train_val_base = df_base[df_base["session_id"] != test_session_id]
+            test_data = df_base[df_base["session_id"] == test_session_id]
 
             if self.include_rest:
-                min_samples = train_val_data["Label_int"].value_counts().min()
-                idx_rest = train_val_data[train_val_data["Label_str"] == "rest"].index.values
+                min_samples = train_val_base["Label_int"].value_counts().min()
+                idx_rest = train_val_base[train_val_base["Label_str"] == "rest"].index.values
                 index_rest_ds = (
-                    train_val_data[train_val_data["Label_str"] == "rest"]
+                    train_val_base[train_val_base["Label_str"] == "rest"]
                     .sample(n=min_samples, random_state=seed)
                     .index.values
                 )
                 idx_to_drop = np.setdiff1d(idx_rest, index_rest_ds)
-                train_val_data = train_val_data.drop(index=idx_to_drop)
+                train_val_base = train_val_base.drop(index=idx_to_drop)
 
-            train_data, val_data = train_test_split(
-                train_val_data,
+            train_base, val_data = train_test_split(
+                train_val_base,
                 test_size=val_size,
                 shuffle=True,
                 random_state=seed,
-                stratify=train_val_data["Label_int"],
+                stratify=train_val_base["Label_int"],
             )
+
+            train_data = training_rows_with_augmentation(self.df, train_base)
 
             row_summary = self._run_one_fold(
                 fold_id=fold_id,
@@ -261,6 +273,9 @@ class Inter_Session_Model_Trainer:
         mode: str,
         test_session_id: Optional[int] = None,
     ) -> Dict[str, Any]:
+        
+        reset_all_seeds()
+
         self.model_master = Model_Master(self.base_config, self.model_config)
         self.model_master.df_train = train_df
         self.model_master.df_val = val_df
@@ -292,13 +307,14 @@ class Inter_Session_Model_Trainer:
             "test_session": int(test_session_id) if test_session_id is not None else None,
         }
 
-        for k, v in metrics.items():
-            if isinstance(v, (np.ndarray, list, tuple)):
-                row_summary[k] = json.dumps(np.asarray(v).tolist())
-            elif isinstance(v, (np.floating,)):
-                row_summary[k] = float(v)
-            else:
-                row_summary[k] = v
+        if metrics is not None:
+            for k, v in metrics.items():
+                if isinstance(v, (np.ndarray, list, tuple)):
+                    row_summary[k] = json.dumps(np.asarray(v).tolist())
+                elif isinstance(v, (np.floating,)):
+                    row_summary[k] = float(v)
+                else:
+                    row_summary[k] = v
 
         row_summary["train_idx"] = self.model_master.df_train.index.tolist()
         row_summary["val_idx"] = self.model_master.df_val.index.tolist()

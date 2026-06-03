@@ -196,8 +196,8 @@ def _plot_subjects_plus_average_single_box(
         itr_mean=("itr_mean", "mean"),
     ).reset_index()
 
-    acc_std_across = g["acc_mean"].apply(lambda v: np.std(v.values)).reset_index(name="acc_std")
-    itr_std_across = g["itr_mean"].apply(lambda v: np.std(v.values)).reset_index(name="itr_std")
+    acc_std_across = g["acc_mean"].apply(lambda v: np.std(v.to_numpy(dtype=float, copy=False))).reset_index(name="acc_std")
+    itr_std_across = g["itr_mean"].apply(lambda v: np.std(v.to_numpy(dtype=float, copy=False))).reset_index(name="itr_std")
     agg = agg.merge(acc_std_across, on="win_size_ms").merge(itr_std_across, on="win_size_ms")
     agg = agg.set_index("win_size_ms").reindex(windows_ms).reset_index()
 
@@ -440,7 +440,7 @@ def main():
 
         T_sec = win_ms / 1000.0
         itrs = np.array(
-            [_compute_itr(M=args.num_classes, T=T_sec, P=p) for p in bal_vals], dtype=float
+            [_compute_itr(M=args.num_classes, T=T_sec, P=float(p)) for p in bal_vals], dtype=float
         )
 
         records.append(
