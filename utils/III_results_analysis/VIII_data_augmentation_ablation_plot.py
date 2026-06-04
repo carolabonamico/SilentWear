@@ -14,7 +14,7 @@ by Data_Augmentation_Ablation_Trainer.py.
 Expected folder hierarchy
 ─────────────────────────
 data_augmentation_ablation:
-  {ablation_root}/{run_label}/{n}_sess/models/{exp}/{subject}/{condition}/{net_id}/{window_id}/{model_run}/cv_summary.csv
+  {args.artifacts_dir}/{run_label}/{n}_sess/models/{exp}/{subject}/{condition}/{net_id}/{window_id}/{model_run}/cv_summary.csv
 
 If multiple subjects are present, each subject is plotted as a separate
 horizontal block. An "Average" block is appended automatically when more 
@@ -69,7 +69,7 @@ def collect_ablation_data(
     experiment_name: str,
     model_run: Optional[str] = None,
 ) -> pd.DataFrame:
-    """scans the ablation_root for CSV files matching the expected folder structure and collects them into a DataFrame."""
+    """Scans the ablation_root for CSV files matching the expected folder structure and collects them into a DataFrame."""
     records: list[dict] = []
     for p in ablation_root.rglob("*"):
         parts = p.parts
@@ -325,7 +325,7 @@ def plot_data_augmentation(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--artifacts_dir", type=Path, default=Path("./artifacts"))
+    ap.add_argument("--artifacts_dir", type=Path, required=True)
     ap.add_argument(
         "--experiment", nargs="+",
         choices=["global", "inter_session"],
@@ -337,15 +337,14 @@ def main():
     )
     args = ap.parse_args()
 
-    ablation_root = args.artifacts_dir / "data_augmentation_ablation"
-    if not ablation_root.exists():
-        print(f"[ERROR] Directory not found: {ablation_root}")
+    if not args.artifacts_dir.exists():
+        print(f"[ERROR] Directory not found: {args.artifacts_dir}")
         return
 
     for exp_name in args.experiment:
         print(f"\n[PLOT] Scanning for data_augmentation | '{exp_name}'...")
 
-        df_results = collect_ablation_data(ablation_root, exp_name, model_run=args.model_run)
+        df_results = collect_ablation_data(args.artifacts_dir, exp_name, model_run=args.model_run)
 
         if df_results.empty:
             print(f"[SKIP] No data found for '{exp_name}'.")

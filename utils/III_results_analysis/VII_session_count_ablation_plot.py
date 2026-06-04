@@ -14,7 +14,7 @@ by Session_Count_Ablation_Trainer.py.
 Expected folder hierarchy
 ─────────────────────────
 session_count_ablation:
-  {ablation_root}/{n}_sess/models/{exp}/{subject}/{condition}/{net_id}/{window_id}/{model_run}/cv_summary.csv
+  {args.artifacts_dir}/{n}_sess/models/{exp}/{subject}/{condition}/{net_id}/{window_id}/{model_run}/cv_summary.csv
 """
 
 import argparse
@@ -177,15 +177,14 @@ def main():
     )
     args = ap.parse_args()
 
-    ablation_root = args.artifacts_dir / "session_count_ablation"
-    if not ablation_root.exists():
-        print(f"[ERROR] Directory not found: {ablation_root}")
+    if not args.artifacts_dir.exists():
+        print(f"[ERROR] Directory not found: {args.artifacts_dir}")
         return
 
     for exp_name in args.experiment:
         print(f"\n[PLOT] Scanning for session_count | '{exp_name}'...")
 
-        df_results = collect_ablation_data(ablation_root, exp_name, model_run=args.model_run)
+        df_results = collect_ablation_data(args.artifacts_dir, exp_name, model_run=args.model_run)
 
         if df_results.empty:
             print(f"[SKIP] No data found for '{exp_name}'.")
