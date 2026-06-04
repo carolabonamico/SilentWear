@@ -350,7 +350,7 @@ def main():
             print(f"[SKIP] No data found for '{exp_name}'.")
             continue
 
-        figures_dir = args.artifacts_dir / "figures" / "ablation_summary"
+        figures_dir = args.artifacts_dir / "figures"
         figures_dir.mkdir(parents=True, exist_ok=True)
 
         out_fig = figures_dir / f"data_augmentation_{exp_name}_summary.png"
