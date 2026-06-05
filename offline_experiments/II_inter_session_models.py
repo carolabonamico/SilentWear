@@ -250,7 +250,12 @@ class Inter_Session_Model_Trainer:
                 stratify=train_val_base["Label_int"],
             )
 
-            train_data = training_rows_with_augmentation(self.df, train_base)
+            train_data = training_rows_with_augmentation(
+                self.df,
+                train_base,
+                mode=self.base_config.get("experiment", {}).get("augmentation_train_mode", "augmented_size"),
+                seed=int(self.base_config.get("experiment", {}).get("seed", 0)),
+            )
 
             row_summary = self._run_one_fold(
                 fold_id=fold_id,

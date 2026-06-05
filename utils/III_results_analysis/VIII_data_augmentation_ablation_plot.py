@@ -230,10 +230,9 @@ def plot_data_augmentation(
         session_counts = np.array(sorted(df_w["session_count"].unique()), dtype=float)
         nX = len(session_counts)
 
-        # Figure height: scale with rows; width scales with number of blocks
         n_blocks = len(subjects) + (1 if multi_subject else 0)
         fig_w = max(6.0, 1.6 * nX * n_blocks + 1.0)
-        fig_h = 5.0 * n_rows
+        fig_h = 7.0 * n_rows
 
         fig, axes = plt.subplots(
             n_rows, 1,
@@ -341,22 +340,43 @@ def main():
         print(f"[ERROR] Directory not found: {args.artifacts_dir}")
         return
 
-    for exp_name in args.experiment:
-        print(f"\n[PLOT] Scanning for data_augmentation | '{exp_name}'...")
+    # Check if the user directly passed a specific ablation folder 
+    if args.artifacts_dir.name.startswith("data_augmentation_ablation"):
+        ablation_roots = [args.artifacts_dir]
+    else:
+        possible_names = [
+            "data_augmentation_ablation",
+            "data_augmentation_ablation_stride_dim",
+            "data_augmentation_ablation_num_strides"
+        ]
+        ablation_roots = [args.artifacts_dir / name for name in possible_names if (args.artifacts_dir / name).exists() and (args.artifacts_dir / name).is_dir()]
+        
+        if not ablation_roots:
+            print(f"[ERROR] No ablation directory (e.g., data_augmentation_ablation) found in {args.artifacts_dir}")
+            return
 
-        df_results = collect_ablation_data(args.artifacts_dir, exp_name, model_run=args.model_run)
+    for ablation_root in ablation_roots:
+        print(f"\n{'='*60}")
+        print(f"[PROCESSING DIRECTORY] {ablation_root.name}")
+        print(f"{'='*60}")
 
-        if df_results.empty:
-            print(f"[SKIP] No data found for '{exp_name}'.")
-            continue
+        for exp_name in args.experiment:
+            print(f"\n[PLOT] Scanning for data_augmentation | '{exp_name}'...")
 
-        figures_dir = args.artifacts_dir / "figures"
-        figures_dir.mkdir(parents=True, exist_ok=True)
+            df_results = collect_ablation_data(ablation_root, exp_name, model_run=args.model_run)
 
-        out_fig = figures_dir / f"data_augmentation_{exp_name}_summary.png"
-        plot_data_augmentation(df_results, exp_name, out_fig, model_run=args.model_run)
+            if df_results.empty:
+                print(f"[SKIP] No data found for '{exp_name}' in {ablation_root.name}.")
+                continue
 
-        print(f"[SAVED] Generated plots in {figures_dir}")
+            # Plots will be saved inside the specific analyzed folder
+            figures_dir = ablation_root / "figures"
+            figures_dir.mkdir(parents=True, exist_ok=True)
+
+            out_fig = figures_dir / f"data_augmentation_{exp_name}_summary.png"
+            plot_data_augmentation(df_results, exp_name, out_fig, model_run=args.model_run)
+
+            print(f"[SAVED] Generated plots in {figures_dir}")
 
 
 if __name__ == "__main__":

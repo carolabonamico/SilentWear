@@ -16,17 +16,20 @@ from datetime import datetime
 import torch
 import numpy as np
 import random
-
+from typing import List
 import yaml
 import pandas as pd
-
+from sklearn.model_selection import train_test_split
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
+
 from utils.II_feature_extraction.FeatExtractorManager import FeatureRegistry
 from models.seeds import TORCH_MANUAL_SEED, RANDOM_SEED, RGN_SEED
+from utils.I_data_preparation.read_bio_file import parse_bio_filename
+
 
 #################################### Utils for Data Preparation ######################################
 
@@ -220,12 +223,45 @@ def base_window_rows(df: pd.DataFrame) -> pd.DataFrame:
     return df[df["augmentation_direction"] == "base"].copy()
 
 
-def training_rows_with_augmentation(full_df: pd.DataFrame, train_base_df: pd.DataFrame) -> pd.DataFrame:
-    """Returns the rows corresponding to the training windows, including augmented ones."""
-    if "augmentation_source_id" not in full_df.columns:
+def training_rows_with_augmentation(
+    augmented_size_df: pd.DataFrame,
+    train_base_df: pd.DataFrame,
+    mode: str = "augmented_size",
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Returns the rows for training.
+
+    - mode='augmented_size': keep all augmented rows derived from the base training split.
+    - mode='original_size': sample the same number of rows as the original training split
+      from the augmented pool, preserving label balance as much as possible.
+    """
+    if "augmentation_source_id" not in augmented_size_df.columns:
         return train_base_df.copy()
+
     train_source_ids = train_base_df["augmentation_source_id"].drop_duplicates()
-    return full_df[full_df["augmentation_source_id"].isin(train_source_ids)].copy()
+    candidate_df = augmented_size_df[augmented_size_df["augmentation_source_id"].isin(train_source_ids)].copy()
+
+    if mode == "original_size":
+        target_size = int(len(train_base_df))
+        if target_size < len(candidate_df):
+            print(
+                f"[DEBUG] original_size training mode:"
+                f"\nAugmented candidate windows={len(candidate_df)}. "
+                f"\nSampled windows={target_size}."
+                f"\nOriginal base windows={len(train_base_df)}."
+            )
+            stratify = candidate_df["Label_int"] if "Label_int" in candidate_df.columns else None
+            sample_ratio = target_size / len(candidate_df)
+            sampled_train, _ = train_test_split(
+                candidate_df,
+                train_size=sample_ratio,
+                random_state=seed,
+                stratify=stratify,
+                shuffle=True,
+            )
+            return sampled_train.reset_index(drop=True)
+
+    return candidate_df.reset_index(drop=True)
 
 
 def reset_all_seeds():
@@ -241,3 +277,20 @@ def reset_all_seeds():
         
     np.random.seed(RGN_SEED)
     random.seed(RANDOM_SEED)
+    
+
+def discover_sessions(data_dir: Path, subject: str, condition: str) -> List[int]:
+    """Discovers available session IDs for the given subject and condition."""
+    raw_dir = data_dir / "raw" / subject / condition
+    if not raw_dir.exists():
+        return []
+
+    sessions = set()
+    for bio_path in sorted(raw_dir.glob("*.bio")):
+        parsed = parse_bio_filename(bio_path)
+        if parsed is None:
+            continue
+        session_id, _, _ = parsed
+        sessions.add(int(session_id))
+
+    return sorted(list(sessions))

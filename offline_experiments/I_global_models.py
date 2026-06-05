@@ -280,7 +280,12 @@ class Global_Model_Trainer:
                 stratify=stratify_train_val
             )
 
-            train_data = training_rows_with_augmentation(df, train_base)
+            train_data = training_rows_with_augmentation(
+                df,
+                train_base,
+                mode=self.base_config.get("experiment", {}).get("augmentation_train_mode", "augmented_size"),
+                seed=int(self.base_config.get("experiment", {}).get("seed", 0)),
+            )
             
             print(f"\n[DEBUG] Original rows passed (train_base): {len(train_base)}")
             print(f"[DEBUG] Final rows for training (after augmentation): {len(train_data)}")
@@ -334,7 +339,12 @@ class Global_Model_Trainer:
                 stratify=train_val_base["Label_int"],
             )
 
-            train_data = training_rows_with_augmentation(df, train_base)
+            train_data = training_rows_with_augmentation(
+                df,
+                train_base,
+                mode=self.base_config.get("experiment", {}).get("augmentation_train_mode", "augmented_size"),
+                seed=int(self.base_config.get("experiment", {}).get("seed", 0)),
+            )
 
             print(f"\n[DEBUG] Original rows passed (train_base): {len(train_base)}")
             print(f"[DEBUG] Final rows for training (after augmentation): {len(train_data)}")

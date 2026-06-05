@@ -300,7 +300,12 @@ def run_ft_for(
                 stratify=df_batch_base["Label_int"],
             )
 
-            df_train = training_rows_with_augmentation(df_batch, df_train_base)
+            df_train = training_rows_with_augmentation(
+                df_batch,
+                df_train_base,
+                mode=base_cfg.get("experiment", {}).get("augmentation_train_mode", "augmented_size"),
+                seed=int(base_cfg.get("experiment", {}).get("seed", 0)),
+            )
 
             model_fine_tuner = Model_Fine_Tuner(
                 base_cfg=base_cfg_used,

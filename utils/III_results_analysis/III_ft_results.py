@@ -210,12 +210,12 @@ def load_results(
         for _, group_df in groups:
             num_prev_ft_rounds.append(int(group_df["num_prev_ft_rounds"].iloc[0]))
 
-            zs = group_df["zero_shot_balanced_acc"].values
+            zs = group_df["zero_shot_balanced_acc"].to_numpy(dtype=float)
             acc_means.append(np.mean(zs))
             acc_stds.append(np.std(zs))
 
             if type == "ft":
-                noft = group_df["balanced_acc_no_ft"].values
+                noft = group_df["balanced_acc_no_ft"].to_numpy(dtype=float)
                 acc_noft_means.append(np.mean(noft))
                 acc_noft_stds.append(np.std(noft))
 
@@ -301,10 +301,10 @@ def summary_to_csv(summary_ft, summary_baseline, res_save_folder, condition, mod
     df_summary = pd.DataFrame(summary_ft)
 
     # ---- FT mean across subjects (by column) ----
-    subjs_accs_means = np.vstack(df_summary["subj_acc_means"].values)
+    subjs_accs_means = np.vstack(df_summary["subj_acc_means"].to_list())
     mean_across_subjs = np.mean(subjs_accs_means, axis=0)
 
-    subjs_accs_means_noft = np.vstack(df_summary["subjs_acc_means_noft"].values)
+    subjs_accs_means_noft = np.vstack(df_summary["subjs_acc_means_noft"].to_list())
     mean_across_subjs_no_ft = np.mean(subjs_accs_means_noft, axis=0)
 
     new_row = {
@@ -325,8 +325,8 @@ def summary_to_csv(summary_ft, summary_baseline, res_save_folder, condition, mod
     # ---- Baseline arrays ----
     df_summary_baseline = pd.DataFrame(summary_baseline)
 
-    per_subject_means_baseline = np.vstack(df_summary_baseline["subj_acc_means"].values)
-    per_subject_stds_baseline = np.vstack(df_summary_baseline["subjs_acc_std"].values)
+    per_subject_means_baseline = np.vstack(df_summary_baseline["subj_acc_means"].to_list())
+    per_subject_stds_baseline = np.vstack(df_summary_baseline["subjs_acc_std"].to_list())
 
     # IMPORTANT FIX: compute std across subjects BEFORE appending the mean row
     std_across_subjs_baseline = per_subject_means_baseline.std(axis=0)
