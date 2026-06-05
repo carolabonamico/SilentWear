@@ -64,7 +64,7 @@ class Data_Augmentation_Ablation_Trainer:
     @staticmethod
     def _normalize_window_size_s(window_value: float) -> float:
         window_value = float(window_value)
-        return window_value / 1000.0
+        return window_value / 1000.0 if window_value > 10 else window_value
 
     def _ensure_combo_data_root(self, combo_root: Path) -> Path:
         """Ensure the ablation workspace exposes the same folders the extractor expects."""
