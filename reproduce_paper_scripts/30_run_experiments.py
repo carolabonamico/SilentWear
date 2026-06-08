@@ -354,6 +354,16 @@ def main():
         
         augmentation_combos: Sequence[Tuple[Optional[int], Optional[int]]] = [(None, None)] + list(product(args.stride_ms, args.num_strides))
 
+        varies_stride = len(args.stride_ms) > 1
+        varies_num = len(args.num_strides) > 1
+
+        if varies_stride and not varies_num:
+            ablation_folder_name = "data_augmentation_ablation_stride_dim"
+        elif varies_num and not varies_stride:
+            ablation_folder_name = "data_augmentation_ablation_num_strides"
+        else:
+            ablation_folder_name = "data_augmentation_ablation"
+            
         # 1. Loop on augmentation combos (stride dimension and number of strides including baseline with no augmentation)
         for stride_ms, num_strides in augmentation_combos:
             if stride_ms is None or num_strides is None:
@@ -392,7 +402,8 @@ def main():
                                     "session_ids": selected_sessions,
                                     "experiment_type": current_exp,
                                     "data_augmentation": data_augmentation,
-                                    "run_label": run_label
+                                    "run_label": run_label,
+                                    "ablation_folder_name": ablation_folder_name
                                 }
                                 
                                 _run_one_subject_condition(
