@@ -1,10 +1,11 @@
 """
-Script to visualize windowed features for each word and condition in a grid layout, with consistent scaling across conditions.
+Script to visualize windowed features for each text unit and condition in a grid layout, with consistent scaling across conditions.
 """
 
 
 import os
 import sys
+import argparse
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -16,7 +17,7 @@ matplotlib.use("Agg")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.I_data_preparation.experimental_config import FS, label_to_word_map
+from utils.I_data_preparation.experimental_config import FS, get_active_labels
 from taper_fig import plot_stacked_channels_in_cell
 from fig_config import channel_colors, neckband_ch_order
 
@@ -32,6 +33,7 @@ window_ms = 1400                       # Update this to the desired window size 
 conditions = None                      # Set to None to include all conditions, or specify a list of conditions to include (e.g., ["vocalized", "silent"])  
 target_session = 1                     # Set to None to include all sessions, or specify a session number to filter (e.g., 1, 2, etc.)  
 target_batch = 1                       # Set to None to include all batches, or specify a batch number to filter (e.g., 1, 2, etc.)  
+label_mode = "word"                    # "word" | "sentence"
 
 save_dir = Path(f"./windowing_check_test/figures/{subject_id}/WIN_{window_ms}/sess_{target_session if target_session is not None else 'all'}")
 output_ext = "png"
@@ -53,13 +55,14 @@ def _concat_windows(series):
     return np.concatenate(arrays)
 
 
-def find_wins_h5(wins_root_dir, subject, win_ms, conditions_list=None):
-    """Finds all .h5 files for a given subject and window size, optionally filtering by conditions, session, and batch."""
+def find_wins_h5(wins_root_dir, subject, win_ms, conditions_list=None, target_sessions=None, target_batches=None):
+    """Finds all .h5 files for a given subject and window size, optionally filtering by conditions, multiple sessions, and multiple batches."""
     base_dir = Path(wins_root_dir) / subject
     if not base_dir.exists():
-        raise FileNotFoundError(f"Wins root does not exist: {base_dir}")
+        print(f"Warning: Wins root does not exist: {base_dir}")
+        return [], conditions_list or []
 
-    if conditions_list is None:
+    if conditions_list is None or len(conditions_list) == 0:
         conditions_list = sorted(
             [p.name for p in base_dir.iterdir() if p.is_dir() and (p / f"WIN_{win_ms}").exists()]
         )
@@ -68,7 +71,8 @@ def find_wins_h5(wins_root_dir, subject, win_ms, conditions_list=None):
             conditions_list = ordered + [col for col in conditions_list if col not in ordered]
 
     if len(conditions_list) == 0:
-        raise FileNotFoundError(f"No condition folders found with WIN_{win_ms} under {base_dir}")
+        print(f"Warning: No condition folders found with WIN_{win_ms} under {base_dir}")
+        return [], []
 
     h5_files = []
     for cond in conditions_list:
@@ -76,10 +80,11 @@ def find_wins_h5(wins_root_dir, subject, win_ms, conditions_list=None):
         if win_dir.exists():
             h5_files.extend(sorted(win_dir.glob("*.h5")))
 
-    if target_session is not None:
-        h5_files = [f for f in h5_files if f.name.find(f"sess_{target_session}") != -1]
-    if target_batch is not None:
-        h5_files = [f for f in h5_files if f.name.find(f"batch_{target_batch}") != -1]
+    if target_sessions is not None and len(target_sessions) > 0:
+        h5_files = [f for f in h5_files if any(f.name.find(f"sess_{ts}_") != -1 for ts in target_sessions)]
+        
+    if target_batches is not None and len(target_batches) > 0:
+        h5_files = [f for f in h5_files if any(f.name.find(f"batch_{tb}.") != -1 for tb in target_batches)]
 
     return h5_files, conditions_list
 
@@ -118,9 +123,9 @@ def _normalize_axes(axs, n_rows, n_cols):
     return np.array([[axs]])
 
 
-def plot_windows_per_word(
+def plot_windows_per_text(
     df,
-    word,
+    text,
     conditions_list,
     ch_cols,
     global_spacing_map,
@@ -138,26 +143,26 @@ def plot_windows_per_word(
     outer_box_color="white",
     text_color="black"
 ):
-    """Plots windowed features for a specific word across different conditions in a grid layout."""
+    """Plots windowed features for a specific text across different conditions in a grid layout."""
     
-    counts = [len(df[(df["condition"] == cond) & (df["Label_str"] == word)]) for cond in conditions_list]
+    counts = [len(df[(df["condition"] == cond) & (df["Label_str"] == text)]) for cond in conditions_list]
     max_reps = max(counts) if len(counts) > 0 else 0
     
     if max_reps == 0:
         return None
 
-    fig_width = max(10, 2.5 * max_reps)
+    fig_width = max(10, 3.2 * max_reps)
     fig, axs = plt.subplots(len(conditions_list), max_reps, figsize=(fig_width, 10), sharex=True, sharey="row")
     axs = _normalize_axes(axs, len(conditions_list), max_reps)
 
     L, R, B, T = 0.06, 0.98, 0.1, 0.88
     
-    fig.subplots_adjust(left=L, right=R, bottom=B, top=T, wspace=0.05, hspace=0.05)
+    fig.subplots_adjust(left=L, right=R, bottom=B, top=T, wspace=0.20, hspace=0.05)
     
-    fig.suptitle(word.upper(), fontsize=title_fontsize, y=0.98, color=text_color)
+    fig.suptitle(text.upper(), fontsize=title_fontsize, y=0.98, color=text_color)
 
     for row_idx, cond in enumerate(conditions_list):
-        df_cond = df[(df["condition"] == cond) & (df["Label_str"] == word)].copy()
+        df_cond = df[(df["condition"] == cond) & (df["Label_str"] == text)].copy()
         
         if df_cond.empty:
             for col_idx in range(max_reps):
@@ -221,7 +226,7 @@ def plot_windows_per_word(
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(save_path, bbox_inches="tight", pad_inches=0.02, transparent=False, facecolor="white")
-    print(f"Saved plot for word {word.upper()}")
+    print(f"Saved plot for text {text.upper()}")
     plt.close(fig)
 
 
@@ -230,56 +235,100 @@ def plot_windows_per_word(
 # ----------------------------
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Script to visualize windowed features.")
     
-    print(f"Generating windowed plots for subject {subject_id}, session {target_session}, batch {target_batch} with window size {window_ms} ms")
-    h5_files, conditions_list = find_wins_h5(wins_root, subject_id, window_ms, conditions)
-    df = load_wins_df(h5_files, key="wins_feats")
-
-    if df.empty:
-        raise RuntimeError("No windowed data loaded.")
-
-    ch_cols = [col for col in ordered_cols if col in df.columns]
+    parser.add_argument("--wins_root", type=str, default=str(wins_root), help="Path to the wins root directory.")
+    parser.add_argument("--subject_ids", nargs="+", default=[subject_id], help="List of subject IDs to process.")
+    parser.add_argument("--window_ms", nargs="+", type=int, default=[window_ms], help="List of desired window sizes in milliseconds.")
+    parser.add_argument("--conditions", nargs="*", default=conditions, help="List of conditions. Leave empty for all.")
     
-    # Global scale calculation
-    spacing_factor = 10
-    margin_factor = 2
-    global_spacing_map = {}
+    default_sessions = [target_session] if target_session is not None else None
+    default_batches = [target_batch] if target_batch is not None else None
     
-    for cond in conditions_list:
-        df_cond = df[df["condition"] == cond]
-        all_signals = []
-        for col in ch_cols:
-            flat_signal = _concat_windows(df_cond[col])
-            if len(flat_signal) > 0:
-                all_signals.append(flat_signal)
-        
-        if all_signals:
-            X_all = np.concatenate(all_signals)
-            amp_ref = float(np.nanpercentile(np.abs(X_all), 95))
-            spacing = spacing_factor * amp_ref if amp_ref > 0 else 1.0
-        else:
-            spacing = 1.0
-            
-        n_ch = len(ch_cols)
-        ylims = (-margin_factor * spacing, (n_ch - 1) * spacing + margin_factor * spacing)
-        
-        global_spacing_map[cond] = {
-            "spacing": spacing,
-            "ylims": ylims
-        }
+    parser.add_argument("--target_sessions", nargs="*", type=int, default=default_sessions, help="List of session numbers to filter.")
+    parser.add_argument("--target_batches", nargs="*", type=int, default=default_batches, help="List of batch numbers to filter.")
+    parser.add_argument("--label_mode", type=str, default=label_mode, choices=["word", "sentence"], help="Label mode: 'word' or 'sentence'.")
+    parser.add_argument("--output_ext", type=str, default=output_ext, help="Extension of the saved figure.")
+    
+    args = parser.parse_args()
 
-    ordered_words = [label_to_word_map[i] for i in sorted(label_to_word_map.keys())]
-    words = [w for w in ordered_words if w in df["Label_str"].unique() and w not in exclude_words]
+    sessions_to_process = args.target_sessions if args.target_sessions else [None]
+    batches_to_process = args.target_batches if args.target_batches else [None]
 
-    for word in words:
-        out_path = save_dir / f"{word}_sess_{target_session if target_session is not None else 'all'}_batch_{target_batch if target_batch is not None else 'all'}.{output_ext}"
-        
-        plot_windows_per_word(
-            df=df,
-            word=word,
-            conditions_list=conditions_list,
-            ch_cols=ch_cols,
-            global_spacing_map=global_spacing_map,
-            save_path=out_path,
-            time_xlim_s=window_ms / 1000.0,
-        )
+    for current_sub in args.subject_ids:
+        for current_win in args.window_ms:
+            for current_sess in sessions_to_process:
+                for current_batch in batches_to_process:
+                    
+                    sess_str = "all" if current_sess is None else str(current_sess)
+                    batch_str = "all" if current_batch is None else str(current_batch)  
+                    
+                    print(f"\nGenerating isolated plots | Subject: {current_sub} | Window: {current_win}ms | Session: {sess_str} | Batch: {batch_str}")
+                    
+                    h5_files, conditions_list = find_wins_h5(
+                        wins_root_dir=args.wins_root, 
+                        subject=current_sub, 
+                        win_ms=current_win, 
+                        conditions_list=args.conditions,
+                        target_sessions=[current_sess] if current_sess is not None else None,
+                        target_batches=[current_batch] if current_batch is not None else None
+                    )
+                    
+                    if not h5_files:
+                        print(f"No h5 files found for {current_sub} (Sess: {sess_str}, Batch: {batch_str}). Skipping...")
+                        continue
+                        
+                    df = load_wins_df(h5_files, key="wins_feats")
+
+                    if df.empty:
+                        print(f"No data loaded for {current_sub} (Sess: {sess_str}, Batch: {batch_str}). Skipping...")
+                        continue
+
+                    ch_cols = [col for col in ordered_cols if col in df.columns]
+                    
+                    spacing_factor = 10
+                    margin_factor = 2
+                    global_spacing_map = {}
+                    
+                    for cond in conditions_list:
+                        df_cond = df[df["condition"] == cond]
+                        all_signals = []
+                        for col in ch_cols:
+                            flat_signal = _concat_windows(df_cond[col])
+                            if len(flat_signal) > 0:
+                                all_signals.append(flat_signal)
+                        
+                        if all_signals:
+                            X_all = np.concatenate(all_signals)
+                            amp_ref = float(np.nanpercentile(np.abs(X_all), 95))
+                            spacing = spacing_factor * amp_ref if amp_ref > 0 else 1.0
+                        else:
+                            spacing = 1.0
+                            
+                        n_ch = len(ch_cols)
+                        ylims = (-margin_factor * spacing, (n_ch - 1) * spacing + margin_factor * spacing)
+                        
+                        global_spacing_map[cond] = {
+                            "spacing": spacing,
+                            "ylims": ylims
+                        }
+
+                    active_labels = get_active_labels(args.label_mode)
+                    ordered_texts = [active_labels[i] for i in sorted(active_labels.keys())]
+                    texts = [t for t in ordered_texts if t in df["Label_str"].unique() and t not in exclude_words]
+
+                    current_save_dir = Path(f"./windowing_check_sentences/figures/{current_sub}/WIN_{current_win}/sess_{sess_str}")
+                    current_save_dir.mkdir(parents=True, exist_ok=True)
+
+                    for text in texts:
+                        out_path = current_save_dir / f"{text}_sess_{sess_str}_batch_{batch_str}.{args.output_ext}"
+                        
+                        plot_windows_per_text(
+                            df=df,
+                            text=text,
+                            conditions_list=conditions_list,
+                            ch_cols=ch_cols,
+                            global_spacing_map=global_spacing_map,
+                            save_path=out_path,
+                            time_xlim_s=current_win / 1000.0,
+                        )

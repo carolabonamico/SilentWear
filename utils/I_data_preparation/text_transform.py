@@ -2,7 +2,7 @@
 Text transformation utilities for CTC lexicon/token conversion.
 
 This mirrors the naming style of TextTransform while keeping CTC-specific
-behavior (blank at index 0, character vocabulary derived from lexicon words).
+behavior (blank at index 0, character vocabulary derived from lexicon texts where texts are lexicon unit lines).
 """
 
 from __future__ import annotations
@@ -16,15 +16,15 @@ _TEXT_NORMALIZER = jiwer.Compose([jiwer.RemovePunctuation(), jiwer.ToLowerCase()
 
 class CTCTextTransform:
     """Utility class for text transformation, handling character-level tokenization and cleaning."""
-    def __init__(self, vocab_words: Iterable[str], blank_id: int = 0):
+    def __init__(self, vocab_texts: Iterable[str], blank_id: int = 0):
         self.blank_id = int(blank_id)
         self.transformation = _TEXT_NORMALIZER
 
         seen = set()
         chars = []
-        for word in vocab_words:
-            clean_word = CTCTextTransform.clean_text(word)
-            for ch in clean_word:
+        for text in vocab_texts:
+            clean_text = CTCTextTransform.clean_text(text)
+            for ch in clean_text:
                 if ch == " ":
                     continue
                 if ch not in seen:

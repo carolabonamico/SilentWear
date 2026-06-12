@@ -195,7 +195,7 @@ def random_forest_factory(
 ):
     from sklearn.ensemble import RandomForestClassifier
 
-    default = dict(
+    default: Dict[str, Any] = dict(
         n_estimators=100,
         random_state=random_state,
         n_jobs=-1,

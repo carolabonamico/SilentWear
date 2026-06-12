@@ -18,6 +18,7 @@ from visualizations import *
 DATA_DIRECTORY = Path(r"path/to/your/data")
 sub_ids = ["S01", "S02", "S03", "S04"]
 # sub_ids = ["S01"]
+LABEL_MODE = "word"  # "word" or "sentence"
 process_all = True
 # If Process_all = False -> select what you want to process
 session_id = 1
@@ -28,6 +29,7 @@ HP_CUTOFF = 20  # Frequency for HP Filter
 PLI_CUTOFF = 50  # Frequency for PLI Filter
 
 plots = False  # Set to True if you want to display plots
+
 # ============================================================
 
 
@@ -57,6 +59,7 @@ if __name__ == "__main__":
                 hp_cutoff=HP_CUTOFF,
                 notch_cutoff=PLI_CUTOFF,
                 plot=plots,
+                label_mode=LABEL_MODE,
             )
 
         else:
@@ -82,6 +85,7 @@ if __name__ == "__main__":
                 PLI_CUTOFF,
                 plot=True,
                 save_path=None,
+                label_mode=LABEL_MODE,
             )
             # save it as hdf file
 

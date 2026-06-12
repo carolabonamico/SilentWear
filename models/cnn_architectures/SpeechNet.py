@@ -23,7 +23,7 @@ class SpeechNet(nn.Module):
     Base Parametric SpeechNet.
 
     Input:  (B, 1, C, T)
-    Output: (B, output_classes)
+    Output: (B, output_classes) o (B, T', output_classes) in ctc_mode
 
     blocks_config: list of blocks, each with:
         out_channels: int
@@ -42,6 +42,7 @@ class SpeechNet(nn.Module):
         p_dropout: float = 0.0,
         global_pool: str = "avg",  # "avg" or "max"
         ctc_mode: bool = False,
+        rnn_hidden_dim: int = 128,
         **kwargs,
     ):
 
@@ -52,15 +53,16 @@ class SpeechNet(nn.Module):
         self.C = C
         self.T = T
         self.output_classes = output_classes
+        self.ctc_mode = bool(ctc_mode)
 
         if blocks_config is None:
             # Example default that is close in spirit to your original (time-only kernels)
             blocks_config = [
-                dict(out_channels=4, kernel=(1, 4), pool=(1, 8)),
-                dict(out_channels=16, kernel=(1, 16), pool=(1, 4)),
-                dict(out_channels=16, kernel=(1, 8), pool=(1, 4)),
-                dict(out_channels=16, kernel=(14, 1), pool=(1, 1)),
-                dict(out_channels=16, kernel=(14, 1), pool=(1, 1)),
+                dict(out_channels=8, kernel=(1, 4), pool=(1, 2)),
+                dict(out_channels=16, kernel=(1, 16), pool=(1, 2)),
+                dict(out_channels=16, kernel=(1, 8), pool=(1, 2)),
+                dict(out_channels=32, kernel=("full", 1), pool=(1, 1)),
+                dict(out_channels=32, kernel=(1, 1), pool=(1, 1)),
             ]
 
         self.blocks = nn.ModuleList()
@@ -101,17 +103,27 @@ class SpeechNet(nn.Module):
             self.blocks.append(nn.Sequential(*layers))
             in_ch = out_ch
 
-        # Dynamic pooling over remaining (channel-height, time-width) -> (1,1)
-        if global_pool == "avg":
-            self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
-        elif global_pool == "max":
-            self.global_pool = nn.AdaptiveMaxPool2d((1, 1))
-        else:
-            raise ValueError("global_pool must be 'avg' or 'max'")
-
         self.dropout = nn.Dropout(p_dropout) if p_dropout > 0 else nn.Identity()
-        self.ctc_mode = bool(ctc_mode)
-        self.fc = nn.Linear(in_ch, output_classes)
+
+        if self.ctc_mode:
+            self.rnn = nn.LSTM(
+                input_size=in_ch,
+                hidden_size=rnn_hidden_dim,
+                num_layers=2,
+                bidirectional=True,
+                batch_first=True,
+                dropout=p_dropout if p_dropout > 0 else 0.0
+            )
+            # Since it's bidirectional, the input dimension doubles (rnn_hidden_dim * 2)
+            self.fc = nn.Linear(rnn_hidden_dim * 2, output_classes)
+        else:
+            if global_pool == "avg":
+                self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
+            elif global_pool == "max":
+                self.global_pool = nn.AdaptiveMaxPool2d((1, 1))
+            else:
+                raise ValueError("global_pool must be 'avg' or 'max'")
+            self.fc = nn.Linear(in_ch, output_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # input x: (B, C, T)
@@ -121,11 +133,14 @@ class SpeechNet(nn.Module):
             x = block(x)
 
         if self.ctc_mode:
-            # collapse height/channel-dimension and keep time dimension: (B, channels, time)
-            x_seq = x.mean(dim=2)
-            x_seq = x_seq.permute(0, 2, 1)
-            x_seq = self.dropout(x_seq)
-            out = self.fc(x_seq)
+            # Collapse the remaining spatial height (now 1 due to "full") and extract the temporal sequence
+            x_seq = x.mean(dim=2)           # (B, channels, T_remaining)
+            x_seq = x_seq.permute(0, 2, 1)  # (B, T_remaining, channels)
+            
+            # Computing global context (BiLSTM) without double regularization at the input
+            x_seq, _ = self.rnn(x_seq)      # (B, T_remaining, rnn_hidden_dim * 2)         
+            x_seq = self.dropout(x_seq)      
+            out = self.fc(x_seq)            # (B, T_remaining, output_classes)
             return out
 
         x = self.global_pool(x)  # (B, channels_last, 1, 1)

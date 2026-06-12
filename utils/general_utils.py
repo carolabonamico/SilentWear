@@ -35,6 +35,7 @@ class SubjectConfig:
 
         self.window_size_s = cfg["window"]["window_size_s"]
         self.data_augmentation = cfg.get("data_augmentation")
+        self.label_mode = str(cfg.get("label_mode", "word")).strip().lower()
 
         self.manual_feature_extraction = cfg["feature_extraction"]["manual_feature_extraction"]
         self.num_subwindows = cfg["feature_extraction"]["num_subwindows"]
@@ -200,8 +201,8 @@ def print_dataset_summary_statistics(df):
                 batches = df_condition["batch_id"].unique()
                 labels = df_condition["Label_str"].value_counts()
                 print(f"Session: {session_id} - condition: {condition}")
-                print(f"  Unique batches: {len(batches)}")
-                print(f"  Labels distribution:\n{labels}")
+                print(f"Unique batches: {len(batches)}")
+                print(f"Labels distribution:\n{labels}")
 
 
 def plot_loss_curves(train_loss, val_loss, save_model_path: Path):

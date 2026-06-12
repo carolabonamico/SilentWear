@@ -49,6 +49,7 @@ from utils.II_feature_extraction.win_feature_extraction_main import (
 DEFAULT_WINDOWS_S = [0.4, 0.6, 0.8, 1.0, 1.2, 1.4]
 DEFAULT_SUBJECTS = ["S01", "S02", "S03", "S04"]
 DEFAULT_CONDITIONS = ["silent", "vocalized"]
+LABEL_MODE_CHOICES = ["word","sentence"]
 
 
 def _parse_bool(s: str) -> bool:
@@ -99,6 +100,12 @@ def main() -> None:
         default=None,
         help="Override manual feature extraction: true/false. If omitted, uses YAML value.",
     )
+    ap.add_argument(
+        "--label_mode",
+        choices=LABEL_MODE_CHOICES,
+        default=None,
+        help="Override label mapping used when creating the HDF5 outputs.",
+    )
 
     args = ap.parse_args()
 
@@ -135,6 +142,9 @@ def main() -> None:
                     cfg["feature_extraction"]["manual_feature_extraction"] = bool(
                         manual_features_override
                     )
+
+                if args.label_mode is not None:
+                    cfg["label_mode"] = args.label_mode
 
                 print("\n" + "=" * 80)
                 print(f"[WINDOWING] subject={sub} | condition={cond} | window_s={window_s}")

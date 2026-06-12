@@ -16,58 +16,68 @@ DEFAULT_BLANK_ID = 0
 
 
 class CTCTextMapper(CTCTextTransform):
-    """Map class labels to CTC token targets and decode token IDs back to words."""
+    """Map class labels to CTC token targets and decode token IDs back to texts."""
 
     def __init__(
         self,
         lexicon_path: str | None = None,
-        lexicon_words: List[str] | None = None,
+        lexicon_texts: List[str] | None = None,
         train_label_map: Dict[int, str] | None = None,
         blank_id: int = DEFAULT_BLANK_ID,
     ):
         self.blank_id = int(blank_id)
         self.train_label_map = train_label_map or {}
 
-        self.label_to_word_map = {
+        self.label_to_text_map = {
             int(k): self.clean_text(v) for k, v in self.train_label_map.items()
         }
-        self.word_to_label_map = {
-            word: label for label, word in self.label_to_word_map.items()
+        self.text_to_label_map = {
+            text: label for label, text in self.label_to_text_map.items()
         }
 
-        self.lexicon_words = []
+        self.lexicon_texts = []
         if lexicon_path:
             if not os.path.exists(lexicon_path):
                 raise FileNotFoundError(f"CTC lexicon_path does not exist: {lexicon_path}.")
             with open(lexicon_path, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.strip():
-                        self.lexicon_words.append(self.clean_text(line.strip().split()[0]))
-        elif lexicon_words:
-            self.lexicon_words = [self.clean_text(w) for w in lexicon_words]
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split()
+                    phrase_parts = []
+                    for part in parts:
+                        if len(part) == 1 and part != "|":
+                            break
+                        phrase_parts.append(part)
+                    
+                    phrase = " ".join(phrase_parts)
+                    self.lexicon_texts.append(self.clean_text(phrase))
+        elif lexicon_texts:
+            self.lexicon_texts = [self.clean_text(w) for w in lexicon_texts]
         else:
-            raise ValueError("CTCTextMapper requires either lexicon_path or lexicon_words.")
+            raise ValueError("CTCTextMapper requires either lexicon_path or lexicon_texts.")
 
-        self.lexicon_words = list(dict.fromkeys(self.lexicon_words))
+        self.lexicon_texts = list(dict.fromkeys(self.lexicon_texts))
 
-        # If training labels are provided, keep only lexicon words that belong to the active label set (e.g., drop "rest" when include_rest=False).
-        if self.word_to_label_map:
-            active_words = set(self.word_to_label_map.keys())
-            self.lexicon_words = [word for word in self.lexicon_words if word in active_words]
+        # If training labels are provided, keep only lexicon texts that belong to the active label set.
+        if self.text_to_label_map:
+            active_texts = set(self.text_to_label_map.keys())
+            self.lexicon_texts = [text for text in self.lexicon_texts if text in active_texts]
 
-            missing_active_words = sorted(active_words.difference(self.lexicon_words))
-            if missing_active_words:
-                raise ValueError(f"CTC lexicon is missing active label words: {missing_active_words}.")
+            missing_active_texts = sorted(active_texts.difference(self.lexicon_texts))
+            if missing_active_texts:
+                raise ValueError(f"CTC lexicon is missing active label texts: {missing_active_texts}.")
 
-        if not self.lexicon_words:
+        if not self.lexicon_texts:
             raise ValueError("CTC lexicon is empty after loading.")
 
-        super().__init__(vocab_words=self.lexicon_words, blank_id=self.blank_id)
+        super().__init__(vocab_texts=self.lexicon_texts, blank_id=self.blank_id)
 
-    def label_int_to_words(self, labels: torch.Tensor) -> List[str]:
-        """Convert label IDs to words using label_to_word_map."""
+    def label_int_to_texts(self, labels: torch.Tensor) -> List[str]:
+        """Convert label IDs to texts using label_to_text_map."""
         return [
-            self.label_to_word_map.get(int(label), str(int(label)))
+            self.label_to_text_map.get(int(label), str(int(label)))
             for label in labels.detach().cpu().tolist()
         ]
 
@@ -76,10 +86,10 @@ class CTCTextMapper(CTCTextTransform):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Encode target labels into CTC character token stream and per-sample lengths."""
         target_tokens, target_lengths = [], []
-        for word in self.label_int_to_words(targets):
-            encoded = self.text_to_int(word)
+        for text in self.label_int_to_texts(targets):
+            encoded = self.text_to_int(text)
             if not encoded:
-                raise ValueError(f"CTC target word '{word}' produced an empty token sequence.")
+                raise ValueError(f"CTC target text '{text}' produced an empty token sequence.")
             target_tokens.extend(encoded)
             target_lengths.append(len(encoded))
 
@@ -88,12 +98,12 @@ class CTCTextMapper(CTCTextTransform):
             torch.tensor(target_lengths, dtype=torch.long, device=device),
         )
 
-    def token_int_to_words(self, pred_ids: torch.Tensor) -> List[str]:
-        """Decode predicted token IDs to words with CTC collapse (exact decode)."""
+    def token_int_to_texts(self, pred_ids: torch.Tensor) -> List[str]:
+        """Decode predicted token IDs to texts with CTC collapse (exact decode)."""
         if pred_ids.ndim == 1:
             pred_ids = pred_ids.unsqueeze(0)
 
-        words = []
+        texts = []
         for seq in pred_ids.detach().cpu().tolist():
             collapsed, prev = [], None
             for token_id in seq:
@@ -104,45 +114,45 @@ class CTCTextMapper(CTCTextTransform):
                     collapsed.append(token_id)
                 prev = token_id
 
-            words.append(self.clean_text(self.int_to_text(collapsed)))
+            texts.append(self.clean_text(self.int_to_text(collapsed)))
 
-        return words
+        return texts
 
-    def _closest_known_word(self, word: str) -> str | None:
-        """Find nearest train label word by edit distance for lexicon-constrained decoding."""
-        if not word or not self.word_to_label_map:
+    def _closest_known_text(self, text: str) -> str | None:
+        """Find nearest train label text by edit distance for lexicon-constrained decoding."""
+        if not text or not self.text_to_label_map:
             return None
-        return min(self.word_to_label_map, key=lambda candidate: editdistance.eval(word, candidate))
+        return min(self.text_to_label_map, key=lambda candidate: editdistance.eval(text, candidate))
 
-    def words_to_label_int(
-        self, words: List[str], allow_nearest: bool = True
+    def texts_to_label_int(
+        self, texts: List[str], allow_nearest: bool = True
     ) -> Tuple[List[int], float]:
-        """Map decoded words to class IDs, with optional nearest-word fallback."""
-        if not words:
+        """Map decoded texts to class IDs, with optional nearest-text fallback."""
+        if not texts:
             return [], 0.0
 
         preds = []
         unknown = 0
 
-        for raw_word in words:
-            word = self.clean_text(raw_word)
+        for raw_text in texts:
+            text = self.clean_text(raw_text)
 
-            if word in self.word_to_label_map:
-                preds.append(int(self.word_to_label_map[word]))
+            if text in self.text_to_label_map:
+                preds.append(int(self.text_to_label_map[text]))
                 continue
 
-            if word == "":
+            if text == "":
                 preds.append(-1)
                 unknown += 1
                 continue
 
             if allow_nearest:
-                nearest = self._closest_known_word(word)
+                nearest = self._closest_known_text(text)
                 if nearest is not None:
-                    preds.append(int(self.word_to_label_map[nearest]))
+                    preds.append(int(self.text_to_label_map[nearest]))
                     continue
 
             preds.append(-1)
             unknown += 1
 
-        return preds, unknown / float(len(words))
+        return preds, unknown / float(len(texts))

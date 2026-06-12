@@ -14,8 +14,8 @@ on extracted EMG features from a single recording.
 It implements a pipeline that:
 
 1. Loads a preprocessed EMG recording stored as HDF5.
-2. Identifies contiguous word segments based on label transitions.
-3. Extracts fixed-length windows from each word segment.
+2. Identifies contiguous text segments based on label transitions.
+3. Extracts fixed-length windows from each text segment.
 4. Optionally performs manual feature extraction using FeatureExtractor.
 5. Returns a DataFrame containing:
     - Raw window data (filtered channels)
@@ -56,7 +56,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.I_data_preparation.experimental_config import *
+from utils.I_data_preparation.experimental_config import FS, get_active_labels
 from utils.II_feature_extraction.FeatExtractorManager import FeatureExtractor
 from utils.I_data_preparation.read_bio_file import print_label_statistics
 
@@ -91,16 +91,16 @@ class Single_Recording_Windower_and_Feature_Extractor:
 
         self.feature_extractor = FeatureExtractor(fs=FS)
 
-    def find_word_segments_manual_index(
+    def find_text_segments_manual_index(
         self,
         df: pd.DataFrame,
         valid_vals: Optional[Set[int]] = None,
         label_col: str = "Label_int",
-        label_to_word_map: Optional[dict] = None,
+        label_to_text_map: Optional[dict] = None,
     ) -> pd.DataFrame:
         """
         Manual run segmentation that returns start/end in df.index LABEL space,
-        matching find_word_segments_df:
+        matching find_text_segments_df:
 
         - start_idx: first index label of the run (inclusive)
         - end_idx:   last index label of the run + 1 (exclusive, label space)
@@ -157,15 +157,14 @@ class Single_Recording_Windower_and_Feature_Extractor:
             # but since we segmented on Label_int, mapping is simpler & consistent
             pass
 
-        if label_to_word_map is not None and len(seg_df) > 0:
-            seg_df["label_str"] = seg_df["label_int"].map(label_to_word_map)
+        if label_to_text_map is not None and len(seg_df) > 0:
+            seg_df["label_str"] = seg_df["label_int"].map(label_to_text_map)
         else:
-            # fallback: if df has Label_str, use mapping from it (optional)
             seg_df["label_str"] = None
 
         return seg_df.reset_index(drop=True)
 
-    def find_word_segments_df(self, df: pd.DataFrame, valid_vals: set[int], label_col="Label_str"):
+    def find_text_segments_df(self, df: pd.DataFrame, valid_vals: set[int], label_col="Label_str"):
         s = df[label_col]
         run_id = (s != s.shift(1)).cumsum()
 
@@ -242,7 +241,7 @@ class Single_Recording_Windower_and_Feature_Extractor:
 
         return feature_row
 
-    def extract_features_per_word(
+    def extract_features_per_text(
         self,
         df_filtered: pd.DataFrame,
         df_channels: pd.Index,
@@ -250,11 +249,11 @@ class Single_Recording_Windower_and_Feature_Extractor:
         sample_per_big_window: int,
         sample_per_small_window: int | None,
     ) -> dict:
-        """Extract features for a single word across all channels.
+        """Extract features for a single text across all channels.
 
         Args:
             emg_filtered: Filtered EMG data.
-            start_idx: Start index for word.
+            start_idx: Start index for text.
             sample_per_big_window: Number of samples in big window.
             sample_per_small_window: Number of samples in small window.
 
@@ -326,7 +325,7 @@ class Single_Recording_Windower_and_Feature_Extractor:
                 # ======= Extract Features Manually ==============
                 feature_row = {}
                 if self.manual_feature_extraction:
-                    feature_row = self.extract_features_per_word(
+                    feature_row = self.extract_features_per_text(
                         df,
                         filt_cols,
                         augmented_start_idx,
@@ -361,14 +360,16 @@ class Single_Recording_Windower_and_Feature_Extractor:
                 
         return pd.DataFrame(feature_data)
 
-    def process_single_recording(self, valid_labels=label_to_word_map.keys()):
+    def process_single_recording(self, valid_labels=None, label_mode: str = "word"):
+        if valid_labels is None:
+            valid_labels = get_active_labels(label_mode).keys()
         # Read current file
         df = pd.read_hdf(self.h5_file, key="emg")
         df = pd.DataFrame(df)
         df = df.reset_index(drop=True)
         print_label_statistics(df)
-        # Find segments corresponding to each Word (or rest)
-        seg_df = self.find_word_segments_df(df, valid_vals=set(valid_labels), label_col="Label_int")
+        # Find segments corresponding to each Text (or rest)
+        seg_df = self.find_text_segments_df(df, valid_vals=set(valid_labels), label_col="Label_int")
         df_wins_feats = self.extract_windows_and_features_from_df(df, seg_df)
         print(df_wins_feats)
         return df_wins_feats

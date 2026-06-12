@@ -60,6 +60,7 @@ class Global_Windower_and_Feature_Extractor:
         self.sub_id = subject_config.subject_id
         self.manual_feature_extraction = subject_config.manual_feature_extraction
         self.save_data = subject_config.save_wins_and_feats
+        self.label_mode = subject_config.label_mode
         self.dire_wins_feats_silent = None
         self.dire_wins_feats_vocalized = None
         self.win_size_sec = subject_config.window_size_s
@@ -135,7 +136,7 @@ class Global_Windower_and_Feature_Extractor:
                     num_subwindows=self.num_subwins,
                 )
 
-                df_wins_feats = single_rec_win_feat.process_single_recording()
+                df_wins_feats = single_rec_win_feat.process_single_recording(label_mode=self.label_mode)
                 if self.save_data and df_save_path is not None:
                     df_wins_feats.to_hdf(df_save_path, key="wins_feats", mode="w")
 

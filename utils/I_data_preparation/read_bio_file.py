@@ -25,7 +25,7 @@ Processed outputs:
 Notes
 -----
 - The `.bio` format is parsed according to the file header and per-signal metadata.
-- Trigger labels are mapped using `ORIGINAL_LABELS` from `experimental_config`.
+- Trigger labels are mapped using `get_active_labels` from `experimental_config`.
 """
 
 import struct
@@ -37,9 +37,9 @@ import re
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
-from I_data_preparation.emg_processing import *
-from I_data_preparation.experimental_config import *
-from I_data_preparation.visualizations import *
+from I_data_preparation.emg_processing import apply_filters
+from I_data_preparation.experimental_config import FS, get_active_labels
+from I_data_preparation.visualizations import plot_emg_color_by_label
 
 BIO_RE = re.compile(
     r"sess_(?P<session>\d+)_batch_(?P<batch>\d+)(?:_[^_]*)?_(?P<ts>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.bio$"
@@ -205,9 +205,16 @@ def read_bio_file(file_path: str) -> dict:
 
 
 def read_single_recording(
-    bio_file_path, session_id, batch_id, hp_cutoff, notch_cutoff, plot=True, save_path=None
+    bio_file_path,
+    session_id,
+    batch_id,
+    hp_cutoff,
+    notch_cutoff,
+    plot=True,
+    save_path=None,
+    label_mode: str = "word",
 ):
-
+    """Reads a single .bio recording, applies preprocessing, and returns a labeled DataFrame."""
     if bio_file_path.exists() == False:
         print(f"File: {bio_file_path} does not exist, provide a valid file")
         sys.exit()
@@ -216,7 +223,7 @@ def read_single_recording(
     emg_df = None
     if bio_file_path.suffix == ".bio":
         signals = read_bio_file(str(bio_file_path))
-        emg_df = prepare_dataset(signals, hp_cutoff=hp_cutoff, notch_cutoff=notch_cutoff)
+        emg_df = prepare_dataset(signals, hp_cutoff=hp_cutoff, notch_cutoff=notch_cutoff, label_mode=label_mode)
 
     if emg_df is None:
         raise ValueError(f"Failed to prepare EMG dataframe from file: {bio_file_path}")
@@ -225,8 +232,7 @@ def read_single_recording(
     emg_df["batch_id"] = batch_id
     print(emg_df.columns)
 
-    # Drop channels 11 and 12 (both raw + filtered if present)
-    drop_idxs = [11, 12]  # FIXED!!
+    drop_idxs = [11, 12]
     drop_cols = []
     for i in drop_idxs:
         drop_cols += [f"Ch_{i}", f"Ch_{i}_filt"]
@@ -312,6 +318,7 @@ def process_all_recordings_for_subject(
     hp_cutoff: int,
     notch_cutoff: int,
     plot: bool,
+    label_mode: str = "word",
 ):
     """
     Scans DATA/raw/<SUB_ID>/(silent|vocalized)/*.bio, processes each, saves to HDF5,
@@ -375,7 +382,7 @@ def process_all_recordings_for_subject(
         try:
             print(f"[PROC] {bio_path.name}")
             emg_df = read_single_recording(
-                bio_path, session_id, batch_id, hp_cutoff, notch_cutoff, plot=plot
+                bio_path, session_id, batch_id, hp_cutoff, notch_cutoff, plot=plot, label_mode=label_mode
             )
 
             emg_df.to_hdf(out_path, key="emg", mode="w")
@@ -483,7 +490,7 @@ def print_label_statistics(emg_df):
     print("\n=================================================\n")
 
 
-def prepare_dataset(signals, hp_cutoff, notch_cutoff):
+def prepare_dataset(signals, hp_cutoff, notch_cutoff, label_mode: str = "word"):
 
     # ------------------------------------------------------------
     # 1. Extract signals
@@ -506,9 +513,10 @@ def prepare_dataset(signals, hp_cutoff, notch_cutoff):
     idx[idx < 0] = 0
     idx[idx >= trigger_len] = trigger_len - 1
     trigger = trigger[idx]
-    
+
     # 3. Convert integer labels into string labels
-    labels = np.vectorize(ORIGINAL_LABELS.get)(trigger)
+    active_labels = get_active_labels(label_mode)
+    labels = np.vectorize(active_labels.get)(trigger)
     
     # 4. Build EMG DataFrame
     emg_df = pd.DataFrame(emg_data, columns=[f"Ch_{i}" for i in range(emg_data.shape[1])])
@@ -569,6 +577,6 @@ if __name__ == "__main__":
         print(f"Sampling frequency EMG: {emg_fs} Hz")
         print(f"Sampling frequency Trigger: {trigger_fs} Hz\n")
 
-        emg_df = read_single_recording(curr_bio, session_id, batch_id, 20, 50, plot=False)
+        emg_df = read_single_recording(curr_bio, session_id, batch_id, 20, 50, plot=False, label_mode="word")
 
         print(print_label_statistics(emg_df))

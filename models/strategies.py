@@ -57,15 +57,19 @@ class CrossEntropyStrategy(TaskStrategy):
 
 
 class CTCStrategy(TaskStrategy):
-    """CTC strategy for sequence-to-sequence tasks."""
+    """CTC strategy for sequence-to-sequence tasks.
+    
+    Works with any label_mode ('word' or 'sentence'): the text_mapper
+    receives the active train_label_map and handles tokenization accordingly.
+    """
 
-    def __init__(self, text_mapper, allow_nearest_word_match: bool = True):
+    def __init__(self, text_mapper, allow_nearest_match: bool = True):
         self.text_mapper = text_mapper
         self.criterion = nn.CTCLoss(blank=self.text_mapper.blank_id, zero_infinity=True)
-        self.allow_nearest_word_match = allow_nearest_word_match
+        self.allow_nearest_match = allow_nearest_match
         self._label_token_map = {
-            int(label): self.text_mapper.text_to_int(word)
-            for label, word in self.text_mapper.label_to_word_map.items()
+            int(label): self.text_mapper.text_to_int(text)
+            for label, text in self.text_mapper.label_to_text_map.items()
         }
 
     def compute_loss(self, outputs, targets, device: torch.device) -> torch.Tensor:
@@ -78,7 +82,7 @@ class CTCStrategy(TaskStrategy):
         return self.criterion(pred, target_tokens, input_lengths, target_lengths)
 
     def _best_label_from_ctc_scores(self, sample_logits: torch.Tensor) -> int:
-        """Pick class label (word) with minimum CTC loss."""
+        """Pick class label (text) with minimum CTC loss."""
         device = sample_logits.device
         time_steps = int(sample_logits.shape[0])
 
@@ -109,13 +113,13 @@ class CTCStrategy(TaskStrategy):
     def predict_labels(self, outputs) -> np.ndarray:
         with torch.no_grad():
             logits = self._extract_logits(outputs)
-            words = self.text_mapper.token_int_to_words(self.greedy_decode(logits))
-            preds, _ = self.text_mapper.words_to_label_int(
-                words, allow_nearest=self.allow_nearest_word_match
+            texts = self.text_mapper.token_int_to_texts(self.greedy_decode(logits))
+            preds, _ = self.text_mapper.texts_to_label_int(
+                texts, allow_nearest=self.allow_nearest_match
             )
 
             # If greedy decode yields empty strings encoded as -1 or 
-            # the string does not correspond to any known word (allow_nearest=False), 
+            # the string does not correspond to any known text (allow_nearest=False), 
             # try to find best label by CTC scores
             if any(int(p) < 0 for p in preds):
                 for i, pred in enumerate(preds):

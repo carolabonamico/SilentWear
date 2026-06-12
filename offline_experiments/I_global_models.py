@@ -11,7 +11,7 @@ Behavior:
 - Load all windows/features for the given subject + condition.
 - Run CV as configured in base_config['cv'] (by defualt, leave_one_batch_out).
 - Save outputs under:
-    <ARTIFACTS_DIR>/models/global/<subject>/<condition>/<model_name>/<MODEL_NAME_ID>/model_<k>/
+    <ARTIFACTS_DIR>/models/<experiment_subdir>/<subject>/<condition>/<model_name>/<MODEL_NAME_ID>/model_<k>/
 
 Compatibility goals:
 1) Importable by `scripts/30_run_experiments.py` (runs ONE subject/condition per call).
@@ -44,10 +44,11 @@ from offline_experiments.general_utils import *
 
 
 class Global_Model_Trainer:
-    def __init__(self, base_config: dict, model_config: dict) -> None:
+    def __init__(self, base_config: dict, model_config: dict, experiment_subdir: str = "global") -> None:
         self.base_config = deepcopy(base_config)
         self.model_config = deepcopy(model_config)
         self.model_master: Optional["Model_Master"] = None
+        self.experiment_subdir = str(experiment_subdir)
 
         self.sub_id = self.base_config["data"]["subject_id"]
         if isinstance(self.sub_id, str):
@@ -75,12 +76,12 @@ class Global_Model_Trainer:
         self.cv_summaries: List[Dict[str, Any]] = []
 
     def _create_saving_directory(self) -> Path:
-        # models/global/<SUB_ID>/<condition>/<model_name>/<MODEL_NAME_ID>/model_<k>/
+        # models/<experiment_subdir>/<SUB_ID>/<condition>/<model_name>/<MODEL_NAME_ID>/model_<k>/
         if not self.all_subjects_models:
             model_parent_dire = (
                 self.main_model_dire
                 / "models"
-                / "global"
+                / self.experiment_subdir
                 / str(self.sub_id)
                 / str(self.condition)
                 / str(self.model_name)
@@ -90,7 +91,7 @@ class Global_Model_Trainer:
             model_parent_dire = (
                 self.main_model_dire
                 / "models"
-                / "global"
+                / self.experiment_subdir
                 / "all_subjects"
                 / str(self.condition)
                 / str(self.model_name)
@@ -174,19 +175,19 @@ class Global_Model_Trainer:
         train_cfg = self.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {})
         loss_name = str(train_cfg.get("loss_name", "unknown_loss"))
         loss_cfg = train_cfg.get("loss", None)
+        label_mode = self.base_config.get("experiment", {}).get("label_mode", "word")
 
         run_cfg_dict = {
             "condition": self.condition,
-            "experiment_type": "global",
+            "experiment_type": self.experiment_subdir,
             "experimental_settings": {
                 "window_size_ms": self.window_size_ms,
                 "include_rest": self.include_rest,
+                "label_mode": label_mode,
                 "cv_type": self.base_config.get("cv", {}),
                 "loss_name": loss_name,
                 "loss_cfg": loss_cfg,
             },
-            "loss_name": loss_name,
-            "loss_cfg": loss_cfg,
             "model_cfg": self.model_config,
             "base_cfg": self.base_config,
             "seeds": {
@@ -481,7 +482,9 @@ def main():
             cfg_run["data"]["subject_id"] = sub
             cfg_run["condition"] = cond
 
-            trainer = Global_Model_Trainer(base_config=cfg_run, model_config=model_cfg)
+            trainer = Global_Model_Trainer(
+                base_config=cfg_run, model_config=model_cfg, experiment_subdir="global"
+            )
             out_dir = trainer.main()
             print(f"[DONE] outputs in: {out_dir}")
 

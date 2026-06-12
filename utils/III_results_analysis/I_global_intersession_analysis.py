@@ -52,9 +52,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
-from utils.I_data_preparation.experimental_config import ORIGINAL_LABELS
+from utils.I_data_preparation.experimental_config import get_active_labels
 
-CM_LABEL_MODE = "both"   # "word", "code", or "both"
+CM_LABEL_MODE = "both"   # "text", "code", or "both"
 
 # ----------------------------- helpers -----------------------------
 
@@ -176,22 +176,6 @@ def _find_runs(
     return out
 
 
-def _pick_bal_acc_col(df: pd.DataFrame) -> str:
-    """
-    Try a few likely names from your trainers.
-    """
-    candidates = [
-        "balanced_accuracy",
-        "balanced_acc",
-        "balanced_acc_test",
-        "balanced_accuracy_test",
-    ]
-    for c in candidates:
-        if c in df.columns:
-            return c
-    raise KeyError(f"Could not find balanced accuracy column. Available: {list(df.columns)}")
-
-
 def _pick_cm_col(df: pd.DataFrame) -> Optional[str]:
     candidates = [
         "confusion_matrix",
@@ -233,58 +217,29 @@ def mean_std_confusion_matrices(series: pd.Series) -> Tuple[np.ndarray, np.ndarr
     return stack.mean(axis=0), stack.std(axis=0)
 
 
-def _infer_display_labels(run_cfg_path: Path, fallback_n: int) -> List[str]:
-    """
-    Best-effort label extraction:
-    - If run_cfg has base_cfg with label mapping, use it.
-    - Else fallback to class indices.
-    """
+def _read_label_mode_from_run_cfg(run_cfg_path: Path) -> str:
+    """Read label_mode from a saved run_cfg.json, defaulting to 'word'."""
     if run_cfg_path.exists():
         try:
             cfg = json.loads(run_cfg_path.read_text())
-            base = cfg.get("base_cfg", {})
-            # common patterns if you stored it somewhere:
-            for key in ["train_label_map", "label_map", "labels_map", "train_labels_map"]:
-                m = base.get(key, None)
-                if isinstance(m, dict) and len(m) > 0:
-                    # dict values are display labels
-                    return [str(v) for v in m.values()]
-            # sometimes stored at top-level
-            for key in ["train_label_map", "label_map"]:
-                m = cfg.get(key, None)
-                if isinstance(m, dict) and len(m) > 0:
-                    return [str(v) for v in m.values()]
+            return cfg.get("experimental_settings", {}).get("label_mode", "word")
         except Exception:
             pass
+    return "word"
 
-    return [str(i) for i in range(fallback_n)]
 
-def _get_display_labels(run_cfg_path: Path, n_classes: int) -> List[str]:
-    """
-    Extracts display labels for the confusion matrix.
-    """
-    labels = _infer_display_labels(run_cfg_path, fallback_n=n_classes)
-    
-    if len(labels) != n_classes:
-        labels = list(ORIGINAL_LABELS.values())
-        
-        # Handle the specific case where the 'rest' class was excluded during evaluation
-        if len(labels) == n_classes + 1 and "rest" in labels:
-            labels.remove("rest")
-            
-    return labels
-
-def _make_cm_labels(n_classes: int, mode: str) -> list[str]:
+def _make_cm_labels(n_classes: int, mode: str, label_mode: str = "text") -> list[str]:
     """Build tick labels for confusion matrix axes."""
+    active_labels = get_active_labels(label_mode)
     labels = []
     for i in range(n_classes):
-        word = ORIGINAL_LABELS.get(i, str(i))
+        text = active_labels.get(i, str(i))
         if mode == "code":
             labels.append(str(i))
-        elif mode == "word":
-            labels.append(word)
+        elif mode == "text":
+            labels.append(text)
         else:
-            labels.append(f"{i} {word}")
+            labels.append(f"{i} {text}")
     return labels
 
 # ----------------------------- main analysis -----------------------------
@@ -405,7 +360,7 @@ def main():
             r = rr[-1]
 
             df = pd.read_csv(r.cv_summary_csv)
-            bal_col = _pick_bal_acc_col(df)
+            bal_col = "balanced_accuracy"
             bal_vals = df[bal_col].astype(float).to_numpy()
 
             rows.append(
@@ -505,9 +460,11 @@ def main():
                 cm_mean, cm_std = mean_std_confusion_matrices(df[cm_col])
                 
                 n_classes = int(cm_mean.shape[0])
-                word_labels = _make_cm_labels(n_classes, CM_LABEL_MODE)
 
-                disp = ConfusionMatrixDisplay(confusion_matrix=cm_mean, display_labels=word_labels)
+                label_mode = _read_label_mode_from_run_cfg(r.run_cfg_json)
+                text_labels = _make_cm_labels(n_classes, CM_LABEL_MODE, label_mode=label_mode)
+
+                disp = ConfusionMatrixDisplay(confusion_matrix=cm_mean, display_labels=text_labels)
                 disp.plot(ax=ax, cmap="Blues", colorbar=False, include_values=False)
 
                 # Force consistent scale

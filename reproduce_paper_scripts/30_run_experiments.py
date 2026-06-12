@@ -413,7 +413,6 @@ def main():
     if "global" in args.experiment:
         for sub in args.subjects:
             for cond in args.conditions:
-                base_cfg["cv"]["mode"] = "leave_one_batch_out"
                 _run_one_subject_condition("global", base_cfg, model_cfg, sub, cond, {}, {})
 
     if "inter_session" in args.experiment:
@@ -464,7 +463,6 @@ def main():
 
     #         # GLOBAL: uses window from base_cfg (user sets it in YAML)
     #         if "global" in args.experiment:
-    #             base_cfg["cv"]["mode"] = "leave_one_batch_out"
     #             _run_one_subject_condition("global", base_cfg, model_cfg, sub, cond, ft_cfg, tfs_cfg)
 
     #         if "inter_session" in args.experiment:

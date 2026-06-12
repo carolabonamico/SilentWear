@@ -26,7 +26,7 @@ ARTIFACTS_DIR = Path(
     os.environ.get("SILENTWEAR_ARTIFACTS_DIR", REPO_ROOT / "artifacts")
 )
 import copy
-from utils.I_data_preparation.experimental_config import ORIGINAL_LABELS
+from utils.I_data_preparation.experimental_config import get_active_labels
 
 # keys you might want to ignore when comparing "exact same run_cfg"
 VOLATILE_KEYS = {
@@ -42,15 +42,19 @@ VOLATILE_KEYS = {
 }
 
 
-def generate_training_labels(include_rest: bool = False, original_label_map: dict = {}):
+def generate_training_labels(
+    include_rest: bool = False,
+    original_label_map: dict = {},
+    label_mode: str = "word",
+):
     """
     Generate:
-        - train_label_map: {train_id: word}
+        - train_label_map: {train_id: word | sentence}
         - train_to_orig:  {train_id: orig_id}
         - orig_to_train:  {orig_id: train_id}
         - num_classes
     """
-    original_map = original_label_map
+    original_map = original_label_map if original_label_map else get_active_labels(label_mode)
 
     if include_rest:
         # identity mapping
@@ -60,8 +64,7 @@ def generate_training_labels(include_rest: bool = False, original_label_map: dic
     else:
         # remove rest (assumes rest is orig label 0)
         filtered_items = [(k, v) for k, v in original_map.items() if k != 0]
-        # train labels become 0..7
-        train_label_map = {new_k: word for new_k, (_, word) in enumerate(filtered_items)}
+        train_label_map = {new_k: text for new_k, (_, text) in enumerate(filtered_items)}
         train_to_orig = {new_k: orig_k for new_k, (orig_k, _) in enumerate(filtered_items)}
         orig_to_train = {orig_k: new_k for new_k, (orig_k, _) in enumerate(filtered_items)}
 
@@ -165,7 +168,7 @@ def _recall_from_cm(cm: np.ndarray):
         )
 
 
-def _get_word_labels_from_train_label_map(cell):
+def _get_text_labels_from_train_label_map(cell):
     if isinstance(cell, str):
         cell = ast.literal_eval(cell)
     if not isinstance(cell, dict):
@@ -186,7 +189,7 @@ def fmt_sci(x: float) -> str:
     return f"{x:g}"
 
 
-def plot_subject_word_accuracy_grid_from_summary(
+def plot_subject_text_accuracy_grid_from_summary(
     summary_df: pd.DataFrame,
     vocalized_condition: str = "vocalized",
     silent_condition: str = "silent",
@@ -223,7 +226,7 @@ def plot_subject_word_accuracy_grid_from_summary(
             overall_mean = df_sc["balanced_acc_mean"].values[0]
             overall_std = df_sc["balanced_acc_std"].values[0]
 
-            # collect per-run per-word recalls using mean_cm (one per run)
+            # collect per-run per-text recalls using mean_cm (one per run)
             recalls = []
             labels = None
 
@@ -238,7 +241,7 @@ def plot_subject_word_accuracy_grid_from_summary(
                     and "train_label_map" in row
                     and row["train_label_map"] is not None
                 ):
-                    labels = _get_word_labels_from_train_label_map(row["train_label_map"])
+                    labels = _get_text_labels_from_train_label_map(row["train_label_map"])
 
             if not recalls:
                 ax.text(0.5, 0.5, "No mean_cm found", ha="center", va="center")
@@ -246,15 +249,15 @@ def plot_subject_word_accuracy_grid_from_summary(
                 continue
 
             recalls_arr = np.vstack(recalls)  # (n_runs, C)
-            mean_word = np.nanmean(recalls_arr, axis=0)
-            std_word = np.nanstd(recalls_arr, axis=0)
+            mean_text = np.nanmean(recalls_arr, axis=0)
+            std_text = np.nanstd(recalls_arr, axis=0)
 
-            C = len(mean_word)
+            C = len(mean_text)
             if labels is None or len(labels) != C:
-                labels = [f"word_{i}" for i in range(C)]
+                labels = [f"text_{i}" for i in range(C)]
 
             x = np.arange(C)
-            ax.bar(x, mean_word, yerr=std_word, capsize=3)
+            ax.bar(x, mean_text, yerr=std_text, capsize=3)
             ax.set_ylim(0, 1.0)
             ax.set_xticks(x)
             ax.set_xticklabels(labels, rotation=45, ha="right")
@@ -264,7 +267,7 @@ def plot_subject_word_accuracy_grid_from_summary(
             )
 
             if c == 0:
-                ax.set_ylabel("Per-word accuracy (recall)")
+                ax.set_ylabel("Per-text accuracy (recall)")
 
     suptitle = "Comparisons"
     if title_extras is not None:
@@ -388,10 +391,13 @@ def load_all_results(
 
                     include_rest = run_cfg["experimental_settings"]["include_rest"]
                     # This is to map training labels back to original labels (if rest was removed during training)
-                    original_label_map = ORIGINAL_LABELS.copy()
+                    label_mode = run_cfg.get("experimental_settings", {}).get("label_mode", "word")
+                    original_label_map = get_active_labels(label_mode)
                     # training labels (keep if you need label order)
                     train_label_map, train_to_orig, orig_to_train = generate_training_labels(
-                        include_rest=include_rest, original_label_map=original_label_map
+                        include_rest=include_rest,
+                        original_label_map=original_label_map,
+                        label_mode=label_mode,
                     )
 
                     cv_path = curr_model_folder / "cv_summary.csv"

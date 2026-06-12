@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
-from utils.I_data_preparation.experimental_config import ORIGINAL_LABELS, FS
+from utils.I_data_preparation.experimental_config import FS, get_active_labels
 from models.models_factory import ModelSpec, build_model_from_spec
 from models.utils import resolve_num_classes_from_cfg
 from models.SklearnTrainer import *
@@ -42,7 +42,7 @@ NUM_CHANNELS = 14
 class Model_Master:
     """
     Main Model Orchestrator:
-    - builds label mappings based on include_rest
+    - builds label mappings based on include_rest and label_mode
     - builds model from YAML model spec
     - Train the Model
     - Evaluates the Model
@@ -52,13 +52,14 @@ class Model_Master:
         self.base_config = base_config
         self.model_config = model_config
         # label maps
-        self.original_label_map = ORIGINAL_LABELS.copy()
+        self.label_mode = self.base_config.get("experiment", {}).get("label_mode", "word")
+        self.original_label_map = get_active_labels(self.label_mode)
         self.channel_order = self.base_config.get(
             "channel_order", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15]
         )
         # print(self.channel_order)
         # print(self.original_label_map)
-        self.train_label_map = None  # train_id -> word
+        self.train_label_map = None  # train_id -> word | sentence
         self.train_to_orig = None  # train_id -> orig_id
         self.orig_to_train = None  # orig_id -> train_id (useful for dataset remap)
         self.num_classes = len(self.original_label_map)
@@ -86,7 +87,7 @@ class Model_Master:
     def generate_training_labels(self) -> None:
         """
         Generate:
-          - train_label_map: {train_id: word}
+          - train_label_map: {train_id: word | sentence}
           - train_to_orig:  {train_id: orig_id}
           - orig_to_train:  {orig_id: train_id}
           - num_classes
@@ -106,9 +107,8 @@ class Model_Master:
                 # remove rest (assumes rest is orig label 0)
                 filtered_items = [(k, v) for k, v in original_map.items() if k != 0]
 
-                # train labels become 0..7
                 self.train_label_map = {
-                    new_k: word for new_k, (_, word) in enumerate(filtered_items)
+                    new_k: text for new_k, (_, text) in enumerate(filtered_items)
                 }
                 print(self.train_label_map)
 
@@ -119,16 +119,17 @@ class Model_Master:
                     orig_k: new_k for new_k, (orig_k, _) in enumerate(filtered_items)
                 }
         else:
-            if include_rest == False:
-                filtered_items = [(k, v) for k, v in original_map.items() if k != 10]
-            else:
-                filtered_items = [(k, v) for k, v in original_map.items()]
-            # train labels become 0..7
-            self.train_label_map = {new_k: word for new_k, (_, word) in enumerate(filtered_items)}
+            filtered_items = (
+                [(k, v) for k, v in original_map.items() if k != 10]
+                if not include_rest
+                else list(original_map.items())
+            )
+            self.train_label_map = {new_k: text for new_k, (_, text) in enumerate(filtered_items)}
 
             self.train_to_orig = {new_k: orig_k for new_k, (orig_k, _) in enumerate(filtered_items)}
             self.orig_to_train = {orig_k: new_k for new_k, (orig_k, _) in enumerate(filtered_items)}
         self.num_classes = len(self.train_label_map)
+        print(f"Label mode: {self.label_mode}")
         print("Num classes set to:", self.num_classes)
 
     def apply_label_mapping(
@@ -280,8 +281,9 @@ class Model_Master:
         # ---- Distribution summary in one row ----
         counts = df["Label_train"].value_counts().sort_index()
 
+        assert self.train_label_map is not None
         summary = ", ".join(
-            [f"{i}({self.train_label_map.get(i, 'UNK')})={c}" for i, c in counts.items()]
+            [f"{i}({self.train_label_map.get(i, 'UNK')})={c}" for i, c in counts.items()]  # type: ignore[call-overload]
         )
 
         print(f"{dataset_name} label distribution: {summary}")
@@ -381,7 +383,7 @@ class Model_Master:
         # Compute dataset columns
         self.extract_dataset_train_columns()
         # Initialize also corresponding trainer class
-
+        assert self.data_col_to_consider is not None
         cols = self.data_col_to_consider + ["Label_train"]
         if self.kind == "ml":
 
@@ -393,11 +395,12 @@ class Model_Master:
                 label_col="Label_train",
             )
         elif self.kind == "dl":
+            assert train_cfg is not None
             if loss_name == "ctc":
                 ctc_cfg = train_cfg["ctc"]
                 strategy = CTCStrategy(
                     text_mapper,
-                    allow_nearest_word_match=bool(ctc_cfg.get("allow_nearest_word_match", True)),
+                    allow_nearest_match=bool(ctc_cfg.get("allow_nearest_match", True)),
                 )
             else:
                 strategy = CrossEntropyStrategy()

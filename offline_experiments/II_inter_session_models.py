@@ -192,6 +192,7 @@ class Inter_Session_Model_Trainer:
         train_cfg = self.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {})
         loss_name = str(train_cfg.get("loss_name", "unknown_loss"))
         loss_cfg = train_cfg.get("loss", None)
+        label_mode = self.base_config.get("experiment", {}).get("label_mode", "word")
 
         run_cfg_dict = {
             "condition": self.condition,
@@ -199,13 +200,11 @@ class Inter_Session_Model_Trainer:
             "experimental_settings": {
                 "window_size_ms": self.window_size_ms,
                 "include_rest": self.include_rest,
+                "label_mode": label_mode,
                 "cv_type": self.base_config.get("cv", {}),
                 "loss_name": loss_name,
                 "loss_cfg": loss_cfg,
             },
-            "subject": self.sub_id,
-            "loss_name": loss_name,
-            "loss_cfg": loss_cfg,
             "model_cfg": self.model_config,
             "base_cfg": self.base_config,
             "seeds": {
