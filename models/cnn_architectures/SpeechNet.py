@@ -10,6 +10,7 @@ SpeechNet Architecture
 
 import torch
 import torch.nn as nn
+import torchaudio.transforms as T_audio
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 import sys
@@ -22,9 +23,11 @@ class SpeechNet(nn.Module):
     """
     Base Parametric SpeechNet.
 
-    Input:  (B, 1, C, T)
-    Output: (B, output_classes) o (B, T', output_classes) in ctc_mode
-
+    Input:  (B, 1, C, T)                 if domain='time' 
+            (B, C, N_MFCC, T_frames)     if domain='mfcc'
+            (B, C, Freq_bins, T_frames)  if domain='stft'
+    Output: (B, output_classes)
+    
     blocks_config: list of blocks, each with:
         out_channels: int
         kernel: (k_c, k_t) where k_c can be int or "full"
@@ -42,7 +45,9 @@ class SpeechNet(nn.Module):
         p_dropout: float = 0.0,
         global_pool: str = "avg",  # "avg" or "max"
         ctc_mode: bool = False,
-        rnn_hidden_dim: int = 128,
+        domain: str = "time",
+        mfcc_cfg: Optional[Dict[str, Any]] = None,
+        stft_cfg: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
 
@@ -53,10 +58,23 @@ class SpeechNet(nn.Module):
         self.C = C
         self.T = T
         self.output_classes = output_classes
-        self.ctc_mode = bool(ctc_mode)
+        self.domain = str(domain).lower()
+        
+        if self.domain == "mfcc":
+            if mfcc_cfg is None:
+                raise ValueError("mfcc_cfg required when using domain='mfcc'")
+            self.transform = T_audio.MFCC(**mfcc_cfg)
+            in_ch = C     
+        elif self.domain == "stft":
+            if stft_cfg is None:
+                raise ValueError("stft_cfg required when using domain='stft'")
+            self.transform = T_audio.Spectrogram(**stft_cfg)
+            in_ch = C  
+        else:
+            in_ch = 1
 
+        # Convolutional blocks configuration
         if blocks_config is None:
-            # Example default that is close in spirit to your original (time-only kernels)
             blocks_config = [
                 dict(out_channels=8, kernel=(1, 4), pool=(1, 2)),
                 dict(out_channels=16, kernel=(1, 16), pool=(1, 2)),
@@ -66,7 +84,6 @@ class SpeechNet(nn.Module):
             ]
 
         self.blocks = nn.ModuleList()
-        in_ch = 1
 
         for i, cfg in enumerate(blocks_config):
             out_ch = int(cfg["out_channels"])
@@ -86,13 +103,14 @@ class SpeechNet(nn.Module):
 
             layers = []
 
-            # Apply Padding on the time dimension
+            # Padding calculation: if kernel size in channel dimension equals input channels, no padding; otherwise, use half of kernel size
+            pad_c = 0 if k_c == C else k_c // 2
             conv = nn.Conv2d(
                 in_ch,
                 out_ch,
                 kernel_size=(int(k_c), int(k_t)),
                 stride=stride,
-                padding=(0, int(k_t) // 2),
+                padding=(pad_c, int(k_t) // 2),
                 padding_mode="zeros",
             )
 
@@ -103,9 +121,19 @@ class SpeechNet(nn.Module):
             self.blocks.append(nn.Sequential(*layers))
             in_ch = out_ch
 
+        # Classification and pooling layers
+        if global_pool == "avg":
+            self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
+        elif global_pool == "max":
+            self.global_pool = nn.AdaptiveMaxPool2d((1, 1))
+        else:
+            raise ValueError("global_pool must be 'avg' or 'max'")
+
         self.dropout = nn.Dropout(p_dropout) if p_dropout > 0 else nn.Identity()
+        self.ctc_mode = bool(ctc_mode)
 
         if self.ctc_mode:
+            rnn_hidden_dim = kwargs.get("rnn_hidden_dim", 128)
             self.rnn = nn.LSTM(
                 input_size=in_ch,
                 hidden_size=rnn_hidden_dim,
@@ -114,37 +142,37 @@ class SpeechNet(nn.Module):
                 batch_first=True,
                 dropout=p_dropout if p_dropout > 0 else 0.0
             )
-            # Since it's bidirectional, the input dimension doubles (rnn_hidden_dim * 2)
             self.fc = nn.Linear(rnn_hidden_dim * 2, output_classes)
         else:
-            if global_pool == "avg":
-                self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
-            elif global_pool == "max":
-                self.global_pool = nn.AdaptiveMaxPool2d((1, 1))
-            else:
-                raise ValueError("global_pool must be 'avg' or 'max'")
             self.fc = nn.Linear(in_ch, output_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # input x: (B, C, T)
-        x = x[:, None]  # (B, 1, C, T)
+        # Input x: (B, C, T)
+        
+        # Frequency domain transformation
+        if self.domain in ["mfcc", "stft"]:
+            x = self.transform(x)
+            if self.domain == "stft":
+                # Converts the power spectrogram to decibel (dB) scale
+                x = 10.0 * torch.log10(x + 1e-10)
+        else:
+            x = x[:, None]  # (B, 1, C, T)
 
+        # Feature extraction through convolutional blocks
         for block in self.blocks:
             x = block(x)
 
+        # Output
         if self.ctc_mode:
-            # Collapse the remaining spatial height (now 1 due to "full") and extract the temporal sequence
             x_seq = x.mean(dim=2)           # (B, channels, T_remaining)
             x_seq = x_seq.permute(0, 2, 1)  # (B, T_remaining, channels)
-            
-            # Computing global context (BiLSTM) without double regularization at the input
-            x_seq, _ = self.rnn(x_seq)      # (B, T_remaining, rnn_hidden_dim * 2)         
-            x_seq = self.dropout(x_seq)      
+            x_seq, _ = self.rnn(x_seq)      # (B, T_remaining, rnn_hidden_dim * 2)
+            x_seq = self.dropout(x_seq)
             out = self.fc(x_seq)            # (B, T_remaining, output_classes)
             return out
 
         x = self.global_pool(x)  # (B, channels_last, 1, 1)
         x = torch.flatten(x, 1)  # (B, channels_last)
         x = self.dropout(x)
-        x = self.fc(x)  # (B, output_classes)
+        x = self.fc(x)          # (B, output_classes)
         return x

@@ -21,7 +21,7 @@ from sklearn.metrics import (
 )
 from models.models_factory import ModelSpec, build_model_from_spec
 import torch
-from utils.I_data_preparation.experimental_config import FS
+from utils.I_data_preparation.experimental_config import FS, get_active_labels
 
 
 def compute_metrics(y_true, y_pred):
@@ -103,16 +103,17 @@ def resolve_num_classes_from_cfg(
     base_cfg: dict, model_cfg: dict, train_label_map: dict | None = None
 ) -> int:
     """Resolve output classes from config."""
-    include_rest = bool(base_cfg["experiment"].get("include_rest", False))
-    num_classes = 9 if include_rest else 8
-
     model_section = model_cfg.get("model", {}) or {}
     kwargs = model_section.get("kwargs", {}) or {}
     train_cfg = kwargs.get("train_cfg", {}) or {}
     loss_name = str(train_cfg.get("loss_name", "")).lower().strip()
 
     if model_section.get("kind") == "dl" and loss_name == "ctc":
-        # CTC output size is based on token vocabulary.
+        if train_label_map is None:
+            raise ValueError(
+                "train_label_map must be provided when loss_name='ctc'."
+            )
+
         from utils.I_data_preparation.ctc_text_mapper import CTCTextMapper, DEFAULT_BLANK_ID
 
         ctc_cfg = train_cfg.get("ctc")
@@ -127,13 +128,23 @@ def resolve_num_classes_from_cfg(
 
         mapper = CTCTextMapper(
             lexicon_path=lexicon_path,
-            train_label_map=train_label_map or {},
+            train_label_map=train_label_map,
             blank_id=ctc_cfg.get("blank_id", DEFAULT_BLANK_ID),
         )
-        num_classes = len(mapper.char_to_int)
-        print("CTC token vocab size (without blank):", num_classes)
+        print("CTC token vocab size (without blank):", len(mapper.char_to_int))
+        return len(mapper.char_to_int)
 
-    return num_classes
+    include_rest = bool(base_cfg["experiment"].get("include_rest", False))
+    label_mode = base_cfg.get("experiment", {}).get("label_mode", "word")
+    original_label_map = get_active_labels(label_mode)
+
+    if not original_label_map:
+        raise ValueError(f"get_active_labels('{label_mode}') returned an empty map.")
+
+    if include_rest:
+        return len(original_label_map)
+    else:
+        return len([k for k in original_label_map if k != 0])
 
 
 def load_pretrained_model(base_cfg, model_cfg, pretrained_model_path):
