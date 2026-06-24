@@ -259,9 +259,9 @@ def training_rows_with_augmentation(
                 stratify=stratify,
                 shuffle=True,
             )
-            return sampled_train.reset_index(drop=True)
+            return sampled_train
 
-    return candidate_df.reset_index(drop=True)
+    return candidate_df
 
 
 def reset_all_seeds():

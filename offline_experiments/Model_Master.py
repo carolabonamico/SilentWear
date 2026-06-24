@@ -22,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from utils.I_data_preparation.experimental_config import FS, get_active_labels
 from models.models_factory import ModelSpec, build_model_from_spec
-from models.utils import resolve_num_classes_from_cfg
+from models.utils import resolve_num_classes_from_cfg, save_model_architecture_to_csv
 from models.SklearnTrainer import *
 from models.TorchTrainer import *
 from models.strategies import CrossEntropyStrategy, CTCStrategy
@@ -168,7 +168,8 @@ class Model_Master:
 
         for name in ["df_train", "df_val", "df_test"]:
             df = getattr(self, name)
-            if df.empty:
+            
+            if df is None or df.empty:
                 print(f"Dataset {name} is empty, skipping")
                 continue
 
@@ -418,6 +419,9 @@ class Model_Master:
 
         print("Model and Trainer Initialized!")
 
+        if self.kind == "dl":
+            save_model_architecture_to_csv(self.model, model_name)
+            
     def train_model(self, save_model_path: Optional[Path] = None, test: Optional[bool] = True):
         """
         Main Model Trainer

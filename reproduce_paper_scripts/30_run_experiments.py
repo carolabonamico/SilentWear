@@ -269,11 +269,13 @@ def main():
     )
     
     # Data augmentation ablation parameters
+    ap.add_argument("--aug_experiments", nargs="+", choices=["global", "inter_session"], default=["global", "inter_session"])
     ap.add_argument("--aug_windows_s", nargs="*", type=float, default=[1.4])
     ap.add_argument("--stride_ms", nargs="*", type=int, default=[10])
     ap.add_argument("--num_strides", nargs="*", type=int, default=[2, 5, 10])
     ap.add_argument("--train_mode", choices=AUGMENTATION_MODE_CHOICES, default=None,
                     help="Optional override. If omitted, the value from window_config['data_augmentation']['train_mode'] is used.")
+    ap.add_argument("--skip_baseline", action="store_true", help="Skip the baseline (no augmentation) run")
     
     # Session count ablation parameters
     ap.add_argument("--session_windows_s", nargs="*", type=float, default=[1.4])
@@ -352,7 +354,9 @@ def main():
         yaml_train_mode = window_cfg.get("data_augmentation", {}).get("train_mode")
         train_mode = str(cli_train_mode or base_train_mode or yaml_train_mode or "augmented_size").strip().lower()
         
-        augmentation_combos: Sequence[Tuple[Optional[int], Optional[int]]] = [(None, None)] + list(product(args.stride_ms, args.num_strides))
+        augmentation_combos: Sequence[Tuple[Optional[int], Optional[int]]] = list(product(args.stride_ms, args.num_strides))
+        if not args.skip_baseline:
+            augmentation_combos = [(None, None)] + augmentation_combos
 
         varies_stride = len(args.stride_ms) > 1
         varies_num = len(args.num_strides) > 1
@@ -377,7 +381,7 @@ def main():
             for n_sess in range(args.min_sessions, max_sessions_global + 1):
                 
                 # 3. Loop on Experiment / Window / Subj / Cond
-                for current_exp in ["global", "inter_session"]:
+                for current_exp in args.aug_experiments:
                     
                     if current_exp == "inter_session" and n_sess < 2:
                         continue
@@ -395,7 +399,12 @@ def main():
                                 base_cfg_w.setdefault("window", {})
                                 base_cfg_w["window"]["window_size_s"] = float(w_s)
                                 base_cfg_w.setdefault("experiment", {})
-                                base_cfg_w["experiment"]["window_config_template"] = window_cfg
+                                
+                                current_window_cfg = deepcopy(window_cfg)
+                                current_window_cfg.setdefault("data", {})
+                                current_window_cfg["data"]["subject_id"] = sub
+                                base_cfg_w["experiment"]["window_config_template"] = current_window_cfg                               
+                                
                                 base_cfg_w["experiment"]["augmentation_train_mode"] = train_mode
                                 base_cfg_w["experiment"]["augmentation_ablation"] = {
                                     "num_sessions": n_sess,
@@ -457,37 +466,6 @@ def main():
                     _run_one_subject_condition(
                         "inter_session_ft", base_cfg_w, model_cfg, sub, cond, ft_cfg, tfs_cfg
                     )
-
-    # for sub in args.subjects:
-    #     for cond in args.conditions:
-
-    #         # GLOBAL: uses window from base_cfg (user sets it in YAML)
-    #         if "global" in args.experiment:
-    #             _run_one_subject_condition("global", base_cfg, model_cfg, sub, cond, ft_cfg, tfs_cfg)
-
-    #         if "inter_session" in args.experiment:
-    #             for w_s in inter_session_windows:
-    #                 base_cfg_w = deepcopy(base_cfg)
-    #                 base_cfg_w.setdefault("window", {})
-    #                 base_cfg_w["window"]["window_size_s"] = float(w_s)
-    #                 _run_one_subject_condition("inter_session", base_cfg_w, model_cfg, sub, cond, ft_cfg, tfs_cfg)
-
-    #         # INTER-SESSION + FT: run configured FT windows
-    #         if "inter_session_ft" in args.experiment:
-    #             for w_s in args.ft_windows_s:
-    #                 base_cfg_w = deepcopy(base_cfg)
-    #                 base_cfg_w.setdefault("window", {})
-    #                 base_cfg_w["window"]["window_size_s"] = float(w_s)
-    #                 _run_one_subject_condition("inter_session_ft", base_cfg_w, model_cfg, sub, cond, ft_cfg, tfs_cfg)
-
-    #         # TRAIN-FROM-SCRATCH: run configured windows
-    #         if "train_from_scratch" in args.experiment:
-    #             for w_s in args.tfs_windows_s:
-    #                 base_cfg_w = deepcopy(base_cfg)
-    #                 base_cfg_w.setdefault("window", {})
-    #                 base_cfg_w["window"]["window_size_s"] = float(w_s)
-    #                 _run_one_subject_condition("train_from_scratch", base_cfg_w, model_cfg, sub, cond, ft_cfg, tfs_cfg)
-
 
 if __name__ == "__main__":
     main()

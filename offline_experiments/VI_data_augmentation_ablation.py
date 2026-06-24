@@ -200,6 +200,7 @@ def main():
     ap.add_argument("--num_strides", nargs="*", type=int, default=[2, 5, 10])
     ap.add_argument("--min_sessions", type=int, default=1)
     ap.add_argument("--train_mode", choices=["augmented_size", "original_size"], default=None)
+    ap.add_argument("--skip_baseline", action="store_true")
     args = ap.parse_args()
 
     varies_stride = len(args.stride_ms) > 1
@@ -228,7 +229,9 @@ def main():
     base_cfg.setdefault("experiment", {})["augmentation_train_mode"] = train_mode
     base_cfg["experiment"]["window_config_template"] = window_cfg
 
-    augmentation_combos: Sequence[Tuple[Optional[int], Optional[int]]] = [(None, None)] + list(product(args.stride_ms, args.num_strides))
+    augmentation_combos: Sequence[Tuple[Optional[int], Optional[int]]] = list(product(args.stride_ms, args.num_strides))
+    if not args.skip_baseline:
+        augmentation_combos = [(None, None)] + augmentation_combos
 
     print(f"\n[ABLATION] Data Augmentation Ablation (Folder: {ablation_folder_name})")
 

@@ -10,6 +10,7 @@ Utils function for models
 
 import sys
 from pathlib import Path
+import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -182,3 +183,49 @@ def load_pretrained_model(base_cfg, model_cfg, pretrained_model_path):
     else:
         print("No weights changed after load — check checkpoint keys / strictness.")
         return None
+    
+
+def save_model_architecture_to_csv(model: nn.Module, model_name: str) -> Path:
+    """
+    Extract layer-wise parameter information and save it to a CSV file.
+    """
+    output_dir = PROJECT_ROOT / "models" / "cnn_architectures"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    file_path = output_dir / f"{model_name}_architecture_info.csv"
+    
+    if not isinstance(model, nn.Module):
+        print(f"[INFO] Model {model_name} is not a torch.nn.Module. Skipping architecture extraction.")
+        return None
+
+    total_params, trainable_params =  count_params(model)
+    
+    rows = []
+    rows.append({
+        "Layer_Name": "GLOBAL_SUMMARY",
+        "Layer_Type": "Total_Parameters",
+        "Parameters_Count": total_params
+    })
+    rows.append({
+        "Layer_Name": "GLOBAL_SUMMARY",
+        "Layer_Type": "Trainable_Parameters",
+        "Parameters_Count": trainable_params
+    })
+    
+    # Inspecting layers and their parameters
+    for name, module in model.named_modules():
+        layer_params = sum(p.numel() for p in module.parameters(recurse=False))
+        if len(list(module.children())) == 0 or layer_params > 0:
+            display_name = name if name != "" else "root"
+            rows.append({
+                "Layer_Name": display_name,
+                "Layer_Type": type(module).__name__,
+                "Parameters_Count": layer_params
+            })
+            
+    # Saving to CSV
+    df_architecture = pd.DataFrame(rows)
+    df_architecture.to_csv(file_path, index=False)
+    
+    print(f"[INFO] Architecure saved: {file_path}")
+    return file_path

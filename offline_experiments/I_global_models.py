@@ -288,8 +288,11 @@ class Global_Model_Trainer:
                 seed=int(self.base_config.get("experiment", {}).get("seed", 0)),
             )
             
-            print(f"\n[DEBUG] Original rows passed (train_base): {len(train_base)}")
-            print(f"[DEBUG] Final rows for training (after augmentation): {len(train_data)}")
+            print(f"\nOriginal rows passed: {len(train_base)}")
+            if len(train_base) == len(train_data):
+                print(f"Final rows for training (no augmentation): {len(train_data)}")
+            else:
+                print(f"Final rows for training (after augmentation): {len(train_data)}")
             
             # fold execution
             row_summary = self._run_one_fold(
@@ -347,8 +350,11 @@ class Global_Model_Trainer:
                 seed=int(self.base_config.get("experiment", {}).get("seed", 0)),
             )
 
-            print(f"\n[DEBUG] Original rows passed (train_base): {len(train_base)}")
-            print(f"[DEBUG] Final rows for training (after augmentation): {len(train_data)}")
+            print(f"\nOriginal rows passed: {len(train_base)}")
+            if len(train_base) == len(train_data):
+                print(f"Final rows for training (no augmentation): {len(train_data)}")
+            else:
+                print(f"Final rows for training (after augmentation): {len(train_data)}")
 
             row_summary = self._run_one_fold(
                 fold_id=fold_id,

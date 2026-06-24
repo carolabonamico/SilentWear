@@ -45,6 +45,7 @@ import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 from sklearn.metrics import ConfusionMatrixDisplay
 import sys
 
@@ -176,18 +177,6 @@ def _find_runs(
     return out
 
 
-def _pick_cm_col(df: pd.DataFrame) -> Optional[str]:
-    candidates = [
-        "confusion_matrix",
-        "confusion_matrix_test",
-        "cm",
-    ]
-    for c in candidates:
-        if c in df.columns:
-            return c
-    return None
-
-
 def _parse_cm_cell(x) -> np.ndarray:
     """
     confusion matrix cell might be:
@@ -213,6 +202,10 @@ def _parse_cm_cell(x) -> np.ndarray:
 
 def mean_std_confusion_matrices(series: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
     mats = [_parse_cm_cell(v) for v in series.values]
+    
+    for idx, m in enumerate(mats):
+        print(f"Matrice {idx} ha forma: {m.shape}")
+        
     stack = np.stack(mats, axis=0)  # [fold, i, j]
     return stack.mean(axis=0), stack.std(axis=0)
 
@@ -335,7 +328,9 @@ def main():
     for r in runs:
         by_mid_cond.setdefault((r.model_name_id, r.condition), []).append(r)
 
-    # For each window + condition, build per-subject summary + (optional) confusion matrices
+    model_run_tag = args.model_run if args.model_run else "latest"
+
+    # For each window + condition, build per-subject summary and save CSV
     for (mid, cond), run_list in sorted(by_mid_cond.items(), key=lambda x: (x[0][0], x[0][1])):
         print("\n" + "=" * 90)
         print(
@@ -399,7 +394,7 @@ def main():
             "condition": cond,
             "model_name": args.model_name,
             "model_name_id": mid,
-            "model_run": (args.model_run if args.model_run else "latest"),
+            "model_run": model_run_tag,
             "run_path": "",
             "balanced_acc_mean": float(np.mean(all_means)),
             "balanced_acc_std": float(np.std(all_means)),
@@ -409,7 +404,6 @@ def main():
         summary_subjects = pd.concat([summary_subjects, pd.DataFrame([all_row])], ignore_index=True)
 
         # Save CSV
-        model_run_tag = args.model_run if args.model_run else "latest"
         out_csv = (
             tables_dir / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}.csv"
         )
@@ -417,101 +411,142 @@ def main():
         print(summary_subjects[["subject", "model_run", "mean_std_perc"]])
         print(f"[SAVED] {out_csv}")
 
-        # Confusion matrices
-        if args.plot_confusion_matrix:
-            active_subjects = [sub for sub in args.subjects if any(r.subject == sub for r in run_list)]
-            n_subj = len(active_subjects)
+    # Confusion matrices: one figure per mid, all conditions side by side
+    if args.plot_confusion_matrix:
+        # Group runs by mid only
+        by_mid: Dict[str, Dict[str, List[RunRef]]] = {}
+        for r in runs:
+            by_mid.setdefault(r.model_name_id, {}).setdefault(r.condition, []).append(r)
+
+        for mid, runs_by_cond in sorted(by_mid.items()):
+            target_conds = [c for c in args.conditions if c in runs_by_cond]
+            nconds = len(target_conds)
+
+            # Subjects that appear in at least one condition, in args order
+            active_subj_set = {r.subject for rl in runs_by_cond.values() for r in rl}
+            target_subjs = [s for s in args.subjects if s in active_subj_set]
+            n_subjs = len(target_subjs)
             ncols = 2
-            nrows = math.ceil(n_subj / ncols)
+            nrows = math.ceil(n_subjs / ncols)
 
-            fig, axs = plt.subplots(
-                nrows,
-                ncols,
-                figsize=(10, 4.5 * nrows),
-                sharex=True,
-                sharey=True,
-                constrained_layout=False,
+            # Load summary CSVs (already saved above) for title annotations
+            summary_dict: Dict[str, pd.DataFrame] = {}
+            for cond in target_conds:
+                csv_path = tables_dir / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}.csv"
+                if csv_path.exists():
+                    summary_dict[cond] = pd.read_csv(csv_path)
+
+            fig = plt.figure(figsize=(4.0 * ncols * nconds, 5.0 * nrows))
+
+            exp_title = args.experiment.replace("_", " ").title()
+            fig.suptitle(f"{exp_title} Evaluation", fontsize=24, y=1.02)
+
+            pad_left = 0.08
+            pad_right = 0.98
+            pad_bottom = 0.18
+
+            width_colorbar = 0.08
+            wspace_colorbar = 0.8
+            wspace_between_conds = 0.2
+
+            width_ratios = [width_colorbar, wspace_colorbar]
+            for i in range(nconds):
+                width_ratios.extend([1] * ncols)
+                if i < nconds - 1:
+                    width_ratios.append(wspace_between_conds)
+
+            total_gs_cols = len(width_ratios)
+
+            gs = gridspec.GridSpec(
+                nrows, total_gs_cols,
+                width_ratios=width_ratios,
+                wspace=0.1, hspace=0.25,
+                left=pad_left, right=pad_right, top=0.88, bottom=pad_bottom
             )
-            fig.subplots_adjust(
-                left=0.12, right=0.98, top=0.92, bottom=0.10, wspace=0.08, hspace=0.25
-            )
-            axs = np.atleast_2d(axs).reshape(nrows, ncols)
 
-            row_images = {}
+            total_ratio_sum = sum(width_ratios)
+            for cond_idx, cond in enumerate(target_conds):
+                start_ratio = width_colorbar + wspace_colorbar + cond_idx * (ncols * 1 + wspace_between_conds)
+                center_ratio = start_ratio + (ncols / 2.0)
+                center_x = pad_left + (center_ratio / total_ratio_sum) * (pad_right - pad_left)
+                fig.text(center_x, 0.94, cond.capitalize(), ha="center", fontsize=20)
 
-            for idx, sub in enumerate(active_subjects):
-                row = idx // ncols
-                col = idx % ncols
-                ax = axs[row, col]
-
-                rr = [r for r in run_list if r.subject == sub]
-                if len(rr) == 0:
-                    ax.axis("off")
-                    continue
-                r = rr[-1]
-
-                df = pd.read_csv(r.cv_summary_csv)
-                cm_col = _pick_cm_col(df)
-                if cm_col is None:
-                    ax.set_title(f"{sub} | (no CM in cv_summary.csv)", fontsize=16)
-                    ax.axis("off")
-                    continue
-
-                cm_mean, cm_std = mean_std_confusion_matrices(df[cm_col])
-                
-                n_classes = int(cm_mean.shape[0])
-
-                label_mode = _read_label_mode_from_run_cfg(r.run_cfg_json)
-                text_labels = _make_cm_labels(n_classes, CM_LABEL_MODE, label_mode=label_mode)
-
-                disp = ConfusionMatrixDisplay(confusion_matrix=cm_mean, display_labels=text_labels)
-                disp.plot(ax=ax, cmap="Blues", colorbar=False, include_values=False)
-
-                # Force consistent scale
-                im = ax.images[0]
-                im.set_clim(0.0, 1.0)
-
-                # title: subject | mean±std balanced acc
-                subj_row = summary_subjects[summary_subjects["subject"] == sub]
-                if len(subj_row) > 0:
-                    title = f"{sub} | {subj_row['mean_std_perc'].iloc[0]}"
-                else:
-                    title = sub
-                ax.set_title(title, fontsize=20)
-                ax.tick_params(axis="x", labelrotation=45, labelsize=11)
-                ax.set_xticklabels(ax.get_xticklabels(), ha="right")
-                ax.tick_params(axis="y", labelsize=11)
-                ax.set_xlabel("")
-                ax.set_ylabel("")
-
-                # store image for row colorbar
-                if row not in row_images:
-                    row_images[row] = ax.images[0]
-
-                # # annotate mean±std per cell
-                # for (i, j), m in np.ndenumerate(cm_mean):
-                #     s = cm_std[i, j]
-                #     ax.text(j, i, f"{m:.2f}\n±{s:.2f}", ha="center", va="center", fontsize=10)
-
-            # turn off unused axes
-            for k in range(n_subj, nrows * ncols):
-                ax_off = axs.flatten()[k]
-                ax_off.axis("off")
-                ax_off.set_visible(False)
-
-            # one colorbar per row (left)
             for row in range(nrows):
-                if row in row_images:
-                    visible_axs = [axs[row, c] for c in range(ncols) if axs[row, c].get_visible()]
-                    cbar = fig.colorbar(
-                        row_images[row], ax=visible_axs, location="left", fraction=0.05, pad=0.15
-                    )
-                    cbar.ax.tick_params(labelsize=15)
-                    cbar.set_label("Accuracy", fontsize=15)
+                cax = fig.add_subplot(gs[row, 0])
+                last_im = None
+
+                for cond_idx, cond in enumerate(target_conds):
+                    run_list_cond = runs_by_cond.get(cond, [])
+                    summary_df = summary_dict.get(cond, pd.DataFrame())
+
+                    for col_rel in range(ncols):
+                        subj_idx = row * ncols + col_rel
+                        if subj_idx >= n_subjs:
+                            continue
+
+                        sub = target_subjs[subj_idx]
+                        col_abs = 2 + cond_idx * (ncols + 1) + col_rel
+                        ax = fig.add_subplot(gs[row, col_abs])
+
+                        rr = [r for r in run_list_cond if r.subject == sub]
+                        if len(rr) == 0:
+                            ax.set_xticks([])
+                            ax.set_yticks([])
+                            ax.set_title(sub, fontsize=14, pad=10)
+                            continue
+
+                        r = sorted(rr, key=lambda x: (int(x.model_run.split("_")[-1]) if x.model_run.startswith("model_") else -1))[-1]
+
+                        df = pd.read_csv(r.cv_summary_csv)
+
+                        cm_mean, cm_std = mean_std_confusion_matrices(df["confusion_matrix"])
+                        n_classes = int(cm_mean.shape[0])
+                        label_mode = _read_label_mode_from_run_cfg(r.run_cfg_json)
+                        text_labels = _make_cm_labels(n_classes, CM_LABEL_MODE, label_mode=label_mode)
+
+                        disp = ConfusionMatrixDisplay(confusion_matrix=cm_mean, display_labels=text_labels)
+                        disp.plot(ax=ax, cmap="Blues", colorbar=False, include_values=True, values_format=".1f", text_kw={"fontsize": 6})
+
+                        last_im = ax.images[0]
+                        last_im.set_clim(0.0, 1.0)
+
+                        subj_row = summary_df[summary_df["subject"] == sub] if len(summary_df) > 0 else pd.DataFrame()
+                        title = f"{sub} | {subj_row['mean_std_perc'].iloc[0]}" if len(subj_row) > 0 else sub
+                        ax.set_title(title, fontsize=16, pad=8)
+
+                        if col_rel == 0:
+                            ax.tick_params(axis="y", labelsize=10)
+                            ax.set_yticklabels(text_labels, fontsize=10)
+                        else:
+                            ax.set_yticks([])
+                        ax.set_ylabel("")
+
+                        last_subj_idx = n_subjs - 1
+                        last_row = last_subj_idx // ncols
+                        last_col_rel = last_subj_idx % ncols
+
+                        is_bottom = False
+                        if row == last_row and col_rel <= last_col_rel:
+                            is_bottom = True
+                        elif row == last_row - 1 and col_rel > last_col_rel:
+                            is_bottom = True
+
+                        if is_bottom:
+                            ax.tick_params(axis="x", labelrotation=45, labelsize=9)
+                            ax.set_xticklabels(text_labels, ha="right", fontsize=9)
+                        else:
+                            ax.set_xticks([])
+                        ax.set_xlabel("")
+
+                if last_im is not None:
+                    cbar = fig.colorbar(last_im, cax=cax)
+                    cbar.ax.yaxis.set_ticks_position('left')
+                    cbar.ax.yaxis.set_label_position('left')
+                    cbar.set_label("Accuracy", fontsize=15, labelpad=10)
 
             out_fig_svg = (
                 figures_dir
-                / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}_cm_{nrows}x{ncols}.svg"
+                / f"{args.model_name}_{model_run_tag}_{mid}_{args.experiment}_cm.svg"
             )
             out_fig_png = out_fig_svg.with_suffix(".png")
             fig.savefig(out_fig_svg, bbox_inches="tight", transparent=args.transparent)

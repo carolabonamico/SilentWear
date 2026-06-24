@@ -414,8 +414,8 @@ class TorchTrainer:
                 if overlap:
                     print(f"Overlap {a}–{b} (index): {len(overlap)} samples")
                 else:
-                    continue
                     # print(f"No index overlap detected for {a}–{b}.")
+                    continue
 
         # ------------------------------------------------------------
         # 2) Check overlap by sample content (robust)

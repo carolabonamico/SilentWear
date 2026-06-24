@@ -104,7 +104,7 @@ def main() -> None:
         "--label_mode",
         choices=LABEL_MODE_CHOICES,
         default=None,
-        help="Override label mapping used when creating the HDF5 outputs.",
+        help="Override label mapping used when creating the HDF5 outputs. If omitted, uses YAML value.",
     )
 
     args = ap.parse_args()
@@ -113,8 +113,6 @@ def main() -> None:
         raise FileNotFoundError(f"Config not found: {args.config}")
     if not args.data_dir.exists():
         raise FileNotFoundError(f"data_dir not found: {args.data_dir}")
-
-    cfg_template = yaml.safe_load(args.config.read_text())
 
     manual_features_override = None
     if args.manual_features is not None:
@@ -159,7 +157,7 @@ def main() -> None:
                     print("extractor initialized")
                     extractor.main()
 
-                    print("done!")
+                print("done!")
 
 
 if __name__ == "__main__":

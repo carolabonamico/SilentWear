@@ -229,6 +229,9 @@ class Session_Feature_Analyzer:
         )
 
         # Feature columns are self.df_feat_cols_to_consider
+        if self.df_feat_cols_to_consider is None:
+            raise ValueError("No feature columns to consider. Check the configuration.")
+        
         if df_silent_all is not None:
             # print("Processing Silent Data.")
             # print("Contains sessions:", df_silent_all['session_id'].unique(), "Batches:",df_silent_all['batch_id'].unique())
