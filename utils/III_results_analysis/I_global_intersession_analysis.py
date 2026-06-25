@@ -292,8 +292,10 @@ def main():
 
     tables_dir = args.tables_dir if args.tables_dir else (artifacts_dir / "tables")
     figures_dir = args.figures_dir if args.figures_dir else (artifacts_dir / "figures")
+    cm_figures_dir = figures_dir / "confusion_matrices"
     tables_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
+    cm_figures_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine model_name_ids (windows)
     if args.model_name_id:
@@ -431,9 +433,13 @@ def main():
                 csv_path = tables_dir / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}.csv"
                 if csv_path.exists():
                     summary_dict[cond] = pd.read_csv(csv_path)
-
-            fig = plt.figure(figsize=(4.0 * ncols * nconds, 5.0 * nrows))
-
+            
+            label_mode = _read_label_mode_from_run_cfg(runs_by_cond[target_conds[0]][0].run_cfg_json)            
+            if label_mode == "sentence":
+                fig = plt.figure(figsize=(5.5 * ncols * nconds, 5.5 * nrows))
+            else:
+                fig = plt.figure(figsize=(4.8 * ncols * nconds, 4.8 * nrows))
+                
             exp_title = args.experiment.replace("_", " ").title()
             fig.suptitle(f"{exp_title} Evaluation", fontsize=24, y=1.02)
 
@@ -442,8 +448,13 @@ def main():
             pad_bottom = 0.18
 
             width_colorbar = 0.08
-            wspace_colorbar = 0.8
-            wspace_between_conds = 0.2
+            
+            if label_mode == "sentence":
+                wspace_colorbar = 0.4
+                wspace_between_conds = 0.4
+            else:
+                wspace_colorbar = 0
+                wspace_between_conds = 0
 
             width_ratios = [width_colorbar, wspace_colorbar]
             for i in range(nconds):
@@ -456,8 +467,9 @@ def main():
             gs = gridspec.GridSpec(
                 nrows, total_gs_cols,
                 width_ratios=width_ratios,
-                wspace=0.1, hspace=0.25,
-                left=pad_left, right=pad_right, top=0.88, bottom=pad_bottom
+                wspace=0.3, 
+                hspace=0.3,
+                left=pad_left, right=pad_right, top=0.85, bottom=pad_bottom
             )
 
             total_ratio_sum = sum(width_ratios)
@@ -473,7 +485,6 @@ def main():
 
                 for cond_idx, cond in enumerate(target_conds):
                     run_list_cond = runs_by_cond.get(cond, [])
-                    summary_df = summary_dict.get(cond, pd.DataFrame())
 
                     for col_rel in range(ncols):
                         subj_idx = row * ncols + col_rel
@@ -501,20 +512,29 @@ def main():
                         text_labels = _make_cm_labels(n_classes, CM_LABEL_MODE, label_mode=label_mode)
 
                         disp = ConfusionMatrixDisplay(confusion_matrix=cm_mean, display_labels=text_labels)
-                        disp.plot(ax=ax, cmap="Blues", colorbar=False, include_values=True, values_format=".1f", text_kw={"fontsize": 6})
+                        disp.plot(ax=ax, cmap="Blues", colorbar=False, include_values=True, values_format=".1f", text_kw={"fontsize": 5})
 
                         last_im = ax.images[0]
                         last_im.set_clim(0.0, 1.0)
 
-                        subj_row = summary_df[summary_df["subject"] == sub] if len(summary_df) > 0 else pd.DataFrame()
-                        title = f"{sub} | {subj_row['mean_std_perc'].iloc[0]}" if len(subj_row) > 0 else sub
-                        ax.set_title(title, fontsize=16, pad=8)
+                        bal_vals = df["balanced_accuracy"].to_numpy(dtype=float)
+                        unbal_vals = df["accuracy"].to_numpy(dtype=float)
+                        
+                        bal_mean = np.mean(bal_vals) * 100
+                        bal_std = np.std(bal_vals) * 100
+                        std_mean = np.mean(unbal_vals) * 100
+                        std_std = np.std(unbal_vals) * 100
+                        
+                        title = f"{sub} \n Bal: {bal_mean:.1f}±{bal_std:.1f}% \n Unbal: {std_mean:.1f}±{std_std:.1f}%"
+
+                        ax.set_title(title, fontsize=12, pad=8)
 
                         if col_rel == 0:
-                            ax.tick_params(axis="y", labelsize=10)
+                            ax.tick_params(axis="y", labelsize=10, pad=12)
                             ax.set_yticklabels(text_labels, fontsize=10)
                         else:
-                            ax.set_yticks([])
+                            ax.set_yticklabels([])
+                            ax.tick_params(axis="y", pad=12)
                         ax.set_ylabel("")
 
                         last_subj_idx = n_subjs - 1
@@ -528,10 +548,11 @@ def main():
                             is_bottom = True
 
                         if is_bottom:
-                            ax.tick_params(axis="x", labelrotation=45, labelsize=9)
+                            ax.tick_params(axis="x", labelrotation=45, labelsize=9, pad=12)
                             ax.set_xticklabels(text_labels, ha="right", fontsize=9)
                         else:
-                            ax.set_xticks([])
+                            ax.set_xticklabels([])
+                            ax.tick_params(axis="x", pad=12)
                         ax.set_xlabel("")
 
                 if last_im is not None:
@@ -541,14 +562,13 @@ def main():
                     cbar.set_label("Accuracy", fontsize=15, labelpad=10)
 
             out_fig_svg = (
-                figures_dir
-                / f"{args.model_name}_{model_run_tag}_{mid}_{args.experiment}_cm.svg"
+                cm_figures_dir / f"{args.model_name}_{model_run_tag}_{mid}_{args.experiment}_cm.svg"
             )
             out_fig_png = out_fig_svg.with_suffix(".png")
             fig.savefig(out_fig_svg, bbox_inches="tight", transparent=args.transparent)
             fig.savefig(out_fig_png, bbox_inches="tight", dpi=300, transparent=args.transparent)
             plt.close(fig)
-            print(f"[SAVED] {out_fig_svg}")
+            print(f"\n[SAVED] {out_fig_svg}")
             print(f"[SAVED] {out_fig_png}")
 
 
