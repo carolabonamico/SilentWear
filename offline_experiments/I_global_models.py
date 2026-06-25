@@ -112,64 +112,14 @@ class Global_Model_Trainer:
 
     def _check_data_directory(self) -> None:
         # wins_and_features/<sub>/<condition>/WIN_<ms>
-        win_feats_root = self.base_config["paths"]["win_and_feats"]
-
-        if not self.all_subjects_models:
-            if self.condition != "voc_and_silent":
-                self.data_dire_proc.append(
-                    self.main_dire
-                    / win_feats_root
-                    / str(self.sub_id)
-                    / str(self.condition)
-                    / f"WIN_{self.window_size_ms}"
-                )
-            else:
-                self.data_dire_proc.append(
-                    self.main_dire
-                    / win_feats_root
-                    / str(self.sub_id)
-                    / "silent"
-                    / f"WIN_{self.window_size_ms}"
-                )
-                self.data_dire_proc.append(
-                    self.main_dire
-                    / win_feats_root
-                    / str(self.sub_id)
-                    / "vocalized"
-                    / f"WIN_{self.window_size_ms}"
-                )
-        else:
-            for curr_sub_id in self.sub_id:
-                if self.condition != "voc_and_silent":
-                    self.data_dire_proc.append(
-                        self.main_dire
-                        / win_feats_root
-                        / str(curr_sub_id)
-                        / str(self.condition)
-                        / f"WIN_{self.window_size_ms}"
-                    )
-                else:
-                    self.data_dire_proc.append(
-                        self.main_dire
-                        / win_feats_root
-                        / str(curr_sub_id)
-                        / "silent"
-                        / f"WIN_{self.window_size_ms}"
-                    )
-                    self.data_dire_proc.append(
-                        self.main_dire
-                        / win_feats_root
-                        / str(curr_sub_id)
-                        / "vocalized"
-                        / f"WIN_{self.window_size_ms}"
-                    )
-
-        for d in self.data_dire_proc:
-            if not d.exists():
-                raise FileNotFoundError(
-                    f"Windows/features directory does not exist: {d}. "
-                    f"Did you run scripts/20_make_windows_and_features.py for window={self.window_size_ms}ms?"
-                )
+        self.data_dire_proc = check_data_directories(
+            main_data_directory=self.main_dire,
+            all_subjects_models=self.all_subjects_models,
+            sub_id=self.sub_id,
+            condition=self.condition,
+            window_size_ms=self.window_size_ms,
+            base_config=self.base_config,
+        )
 
     def _save_run_cfg(self) -> None:
         train_cfg = self.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {})
@@ -419,8 +369,8 @@ class Global_Model_Trainer:
             "cv_mode": mode,
             "fold_num": int(fold_id + 1),
             "test_batch": int(test_batch_id) if test_batch_id is not None else None,
-            "subject_id": str(self.model_master.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {}).get("sub_id", "unknown")),
-            "condition": str(self.model_master.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {}).get("condition", "unknown")),
+            "subject_id": sub_id_str,
+            "condition": str(self.condition),
         }
 
         if metrics is not None:

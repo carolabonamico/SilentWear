@@ -49,16 +49,12 @@ def _load_subject_curve(summary_csv: Path) -> Tuple[np.ndarray, np.ndarray]:
 
     # Keep compatibility with files that contain zero_shot_test_batch.
     if "zero_shot_test_batch" in df.columns:
-        grouped = (
-            df.groupby(["num_prev_ft_rounds", "zero_shot_test_batch"], as_index=False)[acc_col]
-            .mean()
-            .groupby("num_prev_ft_rounds", as_index=False)[acc_col]
-            .mean()
-        )
+        step1 = df.groupby(["num_prev_ft_rounds", "zero_shot_test_batch"], as_index=False)[[acc_col]].mean()
+        grouped = step1.groupby("num_prev_ft_rounds", as_index=False)[[acc_col]].mean()
     else:
-        grouped = df.groupby("num_prev_ft_rounds", as_index=False)[acc_col].mean()
+        grouped = df.groupby("num_prev_ft_rounds", as_index=False)[[acc_col]].mean()
 
-    grouped = grouped.sort_values("num_prev_ft_rounds")
+    grouped = grouped.sort_values(by="num_prev_ft_rounds")
 
     rounds = grouped["num_prev_ft_rounds"].to_numpy(dtype=int)
     acc_perc = grouped[acc_col].to_numpy(dtype=float) * 100.0

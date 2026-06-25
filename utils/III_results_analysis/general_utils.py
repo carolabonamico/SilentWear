@@ -96,7 +96,7 @@ def normalized_run_cfg(cfg, ignore_keys):
 def canonicalize(obj):
     """
     Convert a dict to a canonical JSON string.
-    Needed to use .uniqu() on pandas df.
+    Needed to use .unique() on pandas df.
     """
     
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -410,7 +410,7 @@ def load_all_results(
                     )
                     # config signature for "exactly same run cfg" comparison
                     sig_full = cfg_signature(run_cfg["model_cfg"], drop_keys=set())  # truly exact
-                    # If models where trained with differnt seeds, we need to keep track
+                    # If models were trained with different seeds, we need to keep track
                     if run_cfg.get("seeds") is not None:
                         sig_seeds = cfg_signature(run_cfg["seeds"], drop_keys=set())
                     else:

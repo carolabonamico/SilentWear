@@ -20,6 +20,9 @@ model = build_model_from_spec(spec, ctx)
 
 spec = ModelSpec(kind="ml", name="logreg", kwargs={"C": 1.0})
 estimator = build_model_from_spec(spec, ctx)
+
+# Or with a custom factory bypassing the registry:
+custom_model = build_model(kind="ml", factory=my_custom_ml_factory, model_kwargs={"alpha": 0.5})
 """
 
 from __future__ import annotations
@@ -31,8 +34,6 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
@@ -78,7 +79,7 @@ class ModelSpec:
 # -------------------------------------------------------------------------------------------------
 
 
-def register_dl_model(name: str):
+def register_dl_model(name: str) -> Callable[[DLFactory], DLFactory]:
     """Decorator to register a deep learning model factory."""
 
     def deco(fn: DLFactory) -> DLFactory:
@@ -90,7 +91,7 @@ def register_dl_model(name: str):
     return deco
 
 
-def register_ml_model(name: str):
+def register_ml_model(name: str) -> Callable[[MLFactory], MLFactory]:
     """Decorator to register a classical ML model factory."""
 
     def deco(fn: MLFactory) -> MLFactory:
@@ -125,15 +126,12 @@ def build_model(
     name:
         Registry key. Optional if `factory` is provided.
     factory:
-        Explicit factory callable. If provided, it takes precedence over registry lookup.
+        Explicit factory callable. Takes precedence over `name` lookup.
     model_kwargs:
         Optional model-specific kwargs (hyperparams, architecture params, etc.)
     ctx:
-        Context dict produced by the pipeline. Factories may ignore keys they don't need.
-
-        Suggested ctx keys (examples):
-          - num_classes (int)
-          - include rest class
+        Context dict produced by the pipeline (e.g. num_channels, num_samples,
+        num_classes). DL factories receive ctx; ML factories do not.
 
     Returns
     -------
@@ -141,41 +139,37 @@ def build_model(
     """
     ctx = ctx or {}
     model_kwargs = model_kwargs or {}
-    obj = None
 
-    # 1) choose factory
-    if factory is None:
-        if name is None:
-            raise ValueError("Provide either `name` (registry key) or `factory`.")
-        if kind == "dl":
+    if factory is None and name is None:
+        raise ValueError("Must provide either 'name' (registry key) or 'factory' (callable).")
+
+    if kind == "dl":
+        # 1. Choose the factory to use: explicit or from registry
+        actual_factory = factory
+        if actual_factory is None:
             if name not in DL_MODEL_REGISTRY:
                 raise KeyError(f"Unknown DL model '{name}'. Available: {sorted(DL_MODEL_REGISTRY)}")
-            factory = DL_MODEL_REGISTRY[name]
-            # ctx contains num of classes, needed for pytorch models
-            print("ctx")
-            print(ctx)
-            print("kwargs")
-            print(model_kwargs)
-            obj = factory(**ctx, **model_kwargs)
-            if not isinstance(obj, nn.Module):
-                raise TypeError("DL factory did not return nn.Module.")
+            actual_factory = DL_MODEL_REGISTRY[name]
 
-        elif kind == "ml":
+        # 2. Instantiate the model, passing both ctx and model_kwargs
+        obj = actual_factory(**ctx, **model_kwargs)
+        if not isinstance(obj, nn.Module):
+            raise TypeError("DL factory did not return nn.Module.")
+        return obj
+
+    elif kind == "ml":
+        # 1. Determine the factory to use: explicit or from registry
+        actual_factory = factory
+        if actual_factory is None:
             if name not in ML_MODEL_REGISTRY:
                 raise KeyError(f"Unknown ML model '{name}'. Available: {sorted(ML_MODEL_REGISTRY)}")
-            factory = ML_MODEL_REGISTRY[name]
-            # don't pass ctx
-            obj = factory(**model_kwargs)
-        else:
-            raise ValueError(f"Unknown kind '{kind}'. Must be 'dl' or 'ml'.")
+            actual_factory = ML_MODEL_REGISTRY[name]
 
-    if not callable(factory):
-        raise TypeError("Factory must be callable.")
+        # 2. Instantiate the estimator, passing only model_kwargs (no ctx)
+        return actual_factory(**model_kwargs)
 
-    if obj is None:
-        obj = factory(**ctx, **model_kwargs)
-
-    return obj
+    else:
+        raise ValueError(f"Unknown kind '{kind}'. Must be 'dl' or 'ml'.")
 
 
 def build_model_from_spec(spec: ModelSpec, ctx: Dict[str, Any]) -> Union[nn.Module, MLEstimator]:
@@ -191,8 +185,8 @@ def build_model_from_spec(spec: ModelSpec, ctx: Dict[str, Any]) -> Union[nn.Modu
 @register_ml_model("random_forest")
 def random_forest_factory(
     random_state: int = 0,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Any:
     from sklearn.ensemble import RandomForestClassifier
 
     default: Dict[str, Any] = dict(
@@ -202,7 +196,6 @@ def random_forest_factory(
     )
     default.update(kwargs)
 
-    print("Registered Random Forest!")
     return RandomForestClassifier(**default)
 
 
@@ -220,7 +213,7 @@ def speechnet(
     **model_kwargs,
 ) -> nn.Module:
     """
-    Factory for EpiDeNet.
+    Factory for SpeechNet.
 
     Required ctx keys:
       - num_channels
@@ -233,13 +226,12 @@ def speechnet(
     """
     from models.cnn_architectures.SpeechNet import SpeechNet
 
-    train_cfg = model_kwargs["train_cfg"]
-    loss_name = str(train_cfg["loss_name"]).lower().strip()
+    train_cfg = model_kwargs.get("train_cfg", {})
+    loss_name = str(train_cfg.get("loss_name", "cross_entropy")).lower().strip()
     if loss_name not in {"ctc", "cross_entropy"}:
         raise ValueError(f"Unsupported loss_name='{loss_name}'.")
 
     use_ctc = loss_name == "ctc"
-    model_kwargs["ctc_mode"] = use_ctc
     output_classes = num_classes + (1 if use_ctc else 0)
 
     return SpeechNet(
@@ -260,11 +252,11 @@ def emg_transformer(
     ) -> nn.Module:
 
     """
-    Factory for TinyMyo.
-    
+    Factory for EMGTransformer.
+
     Required ctx keys:
       - num_channels
-            - num_samples
+      - num_samples
       - num_classes
     """
     _ = num_samples
@@ -277,8 +269,8 @@ def emg_transformer(
 
     # train_cfg is consumed by the trainer, not by the model constructor.
     model_kwargs = dict(model_kwargs)
-    train_cfg = model_kwargs["train_cfg"]
-    loss_name = str(train_cfg["loss_name"]).lower().strip()
+    train_cfg = model_kwargs.get("train_cfg", {})
+    loss_name = str(train_cfg.get("loss_name", "cross_entropy")).lower().strip()
     if loss_name not in {"ctc", "cross_entropy"}:
         raise ValueError(f"Unsupported loss_name='{loss_name}'.")
 

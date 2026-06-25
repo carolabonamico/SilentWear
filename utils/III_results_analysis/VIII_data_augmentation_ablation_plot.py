@@ -7,12 +7,12 @@
 
 """
 Standalone Plotting Script for Data Augmentation Ablation Studies
-=================================================================
+
 Reads the outputs directly from the folder structure generated
 by Data_Augmentation_Ablation_Trainer.py.
 
 Expected folder hierarchy
-─────────────────────────
+
 data_augmentation_ablation:
   {args.artifacts_dir}/{run_label}/{n}_sess/models/{exp}/{subject}/{condition}/{net_id}/{window_id}/{model_run}/cv_summary.csv
 

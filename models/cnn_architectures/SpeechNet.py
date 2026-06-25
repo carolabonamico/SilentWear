@@ -12,11 +12,6 @@ import torch
 import torch.nn as nn
 import torchaudio.transforms as T_audio
 from typing import Any, Dict, List, Optional
-from pathlib import Path
-import sys
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJECT_ROOT))
 
 
 class SpeechNet(nn.Module):
@@ -50,12 +45,9 @@ class SpeechNet(nn.Module):
         domain: str = "time",
         mfcc_cfg: Optional[Dict[str, Any]] = None,
         stft_cfg: Optional[Dict[str, Any]] = None,
+        spec_augment: bool = False,
         **kwargs,
     ):
-
-        # print("Speech net initialized with dropout,", p_dropout)
-
-        # print("Other kwargs", kwargs)
         super().__init__()
         self.C = C
         self.T = T
@@ -78,9 +70,14 @@ class SpeechNet(nn.Module):
             if stft_cfg is None:
                 raise ValueError("stft_cfg required when using domain='stft'")
             self.transform = T_audio.Spectrogram(**stft_cfg)
-            in_ch = C  
+            in_ch = C
         else:
             in_ch = 1
+
+        self.spec_augment = bool(spec_augment) and self.domain in ("mfcc", "stft")
+        if self.spec_augment:
+            self.freq_mask = T_audio.FrequencyMasking(freq_mask_param=8)
+            self.time_mask = T_audio.TimeMasking(time_mask_param=20)
 
         # Convolutional blocks configuration
         if blocks_config is None:
@@ -166,6 +163,9 @@ class SpeechNet(nn.Module):
             if self.domain == "stft":
                 # Converts the power spectrogram to decibel (dB) scale
                 x = 10.0 * torch.log10(x + 1e-10)
+            if self.spec_augment and self.training:
+                x = self.freq_mask(x)
+                x = self.time_mask(x)
         else:
             x = x[:, None]  # (B, 1, C, T)
 

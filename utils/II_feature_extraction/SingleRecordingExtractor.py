@@ -71,12 +71,10 @@ class Single_Recording_Windower_and_Feature_Extractor:
         data_augmentation: Optional[dict] = None,
         num_subwindows: Optional[int] = None,
     ) -> None:
-        pass
-        """
-        Data Windower and Feature Extractor, operating on a single recording
+        """Data windower and feature extractor operating on a single recording.
 
-        Aregs:
-            data_directory: main data directory for the current subject
+        Args:
+            data_directory: main data directory for the current subject.
         """
         self.data_directory = data_directory
         self.h5_file = h5_file_path
@@ -164,7 +162,9 @@ class Single_Recording_Windower_and_Feature_Extractor:
 
         return seg_df.reset_index(drop=True)
 
-    def find_text_segments_df(self, df: pd.DataFrame, valid_vals: set[int], label_col="Label_str"):
+    def find_text_segments_df(
+        self, df: pd.DataFrame, valid_vals: Set[int], label_col: str = "Label_str"
+    ) -> pd.DataFrame:
         s = df[label_col]
         run_id = (s != s.shift(1)).cumsum()
 
@@ -274,7 +274,9 @@ class Single_Recording_Windower_and_Feature_Extractor:
 
         return feature_row
 
-    def extract_windows_and_features_from_df(self, df, seg_df):
+    def extract_windows_and_features_from_df(
+        self, df: pd.DataFrame, seg_df: pd.DataFrame
+    ) -> pd.DataFrame:
 
         sample_per_big_window = int(self.window_size_s * FS)
         sample_per_small_window = None
@@ -360,7 +362,9 @@ class Single_Recording_Windower_and_Feature_Extractor:
                 
         return pd.DataFrame(feature_data)
 
-    def process_single_recording(self, valid_labels=None, label_mode: str = "word"):
+    def process_single_recording(
+        self, valid_labels=None, label_mode: str = "word"
+    ) -> pd.DataFrame:
         if valid_labels is None:
             valid_labels = get_active_labels(label_mode).keys()
         # Read current file

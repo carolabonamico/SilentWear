@@ -34,6 +34,7 @@ from pathlib import Path
 import sys
 import pandas as pd
 import re
+from typing import Optional, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -230,18 +231,15 @@ def read_single_recording(
 
     emg_df["session_id"] = session_id
     emg_df["batch_id"] = batch_id
-    print(emg_df.columns)
 
     drop_idxs = [11, 12]
     drop_cols = []
     for i in drop_idxs:
         drop_cols += [f"Ch_{i}", f"Ch_{i}_filt"]
 
-    plot_emg_color_by_label(emg_df, fs=FS, use_filtered=True, save_path=save_path)
+    if plot:
+        plot_emg_color_by_label(emg_df, fs=FS, use_filtered=True, save_path=save_path)
     emg_df = emg_df.drop(columns=[c for c in drop_cols if c in emg_df.columns])
-
-    # if plot:
-    #     plot_emg_color_by_label(emg_df, fs=FS, use_filtered=True, save_path=save_path)
 
     # drop channel 12 and 13
     print(emg_df["session_id"])
@@ -273,7 +271,7 @@ def find_bio_file(data_dir_raw, subject, condition, session_id, batch_id):
     return matches[0]
 
 
-def parse_bio_filename(path: Path):
+def parse_bio_filename(path: Path) -> Optional[Tuple[int, int, str]]:
     """
     Returns (session_id:int, batch_id:int, timestamp:str) or None if no match.
     """
@@ -284,8 +282,8 @@ def parse_bio_filename(path: Path):
 
 
 def processed_path_for(
-    raw_path: Path, data_dir_processed: Path, condition: str, session_id: int, batch_id: int
-):
+    data_dir_processed: Path, condition: str, session_id: int, batch_id: int
+) -> Path:
     """
     Choose a consistent processed filename.
     """
@@ -359,7 +357,7 @@ def process_all_recordings_for_subject(
             continue
 
         session_id, batch_id, ts = parsed
-        out_path = processed_path_for(bio_path, data_dir_processed, condition, session_id, batch_id)
+        out_path = processed_path_for(data_dir_processed, condition, session_id, batch_id)
 
         if out_path.exists():
             print(f"[SKIP] Already processed: {out_path.name}")
@@ -536,17 +534,16 @@ def prepare_dataset(signals, hp_cutoff, notch_cutoff, label_mode: str = "word"):
     # Filter data
     for i in range(emg_data.shape[1]):
         emg_df[f"Ch_{i}_filt"] = apply_filters(
-            emg_data[:, i], FS, highpass_cutoff=hp_cutoff, notch_cutoff=notch_cutoff
+            emg_data[:, i], emg_fs, highpass_cutoff=hp_cutoff, notch_cutoff=notch_cutoff
         )
 
-    # Trim recording considering only first and last label
-    first_label_loc = emg_df["Label_int"][emg_df["Label_int"] != 0].index[0]
-    # give some margin (1 sec before)
-    first_label_loc = int(first_label_loc - FS)
-
-    last_label_loc = emg_df["Label_int"][emg_df["Label_int"] != 0].index[-1]
-    # give some margin (1 sec after)
-    last_label_loc = int(last_label_loc + FS)
+    # Trim recording to the labeled region with a 1 s margin on each side.
+    # The DataFrame has a default RangeIndex, so index labels equal positions; we
+    # clamp the bounds to avoid a negative start (which would wrap to the end of
+    # the frame) or an over-bound stop.
+    labeled_idx = emg_df["Label_int"][emg_df["Label_int"] != 0].index
+    first_label_loc = max(0, int(labeled_idx[0] - FS))
+    last_label_loc = min(len(emg_df), int(labeled_idx[-1] + FS))
 
     emg_df = emg_df.iloc[first_label_loc:last_label_loc]
 

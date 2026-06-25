@@ -42,7 +42,12 @@ sys.path.insert(0, str(REPO_ROOT))
 from offline_experiments.Model_Master import Model_Master
 from models.seeds import RGN_SEED, TORCH_MANUAL_SEED, RANDOM_SEED
 from utils.general_utils import load_all_h5files_from_folder, print_dataset_summary_statistics
-from offline_experiments.general_utils import base_window_rows, training_rows_with_augmentation, reset_all_seeds
+from offline_experiments.general_utils import (
+    base_window_rows,
+    training_rows_with_augmentation,
+    reset_all_seeds,
+    check_data_directories,
+)
 
 
 class Inter_Session_Model_Trainer:
@@ -128,65 +133,14 @@ class Inter_Session_Model_Trainer:
             return model_dire
 
     def _check_data_directory(self) -> None:
-        self.data_dire_proc = []
-        win_feats_root = self.base_config["paths"]["win_and_feats"]
-
-        if not self.all_subjects_models:
-            if self.condition != "voc_and_silent":
-                self.data_dire_proc.append(
-                    self.main_dire
-                    / win_feats_root
-                    / str(self.sub_id)
-                    / str(self.condition)
-                    / f"WIN_{self.window_size_ms}"
-                )
-            else:
-                self.data_dire_proc.append(
-                    self.main_dire
-                    / win_feats_root
-                    / str(self.sub_id)
-                    / "silent"
-                    / f"WIN_{self.window_size_ms}"
-                )
-                self.data_dire_proc.append(
-                    self.main_dire
-                    / win_feats_root
-                    / str(self.sub_id)
-                    / "vocalized"
-                    / f"WIN_{self.window_size_ms}"
-                )
-        else:
-            for curr_sub_id in self.sub_id:
-                if self.condition != "voc_and_silent":
-                    self.data_dire_proc.append(
-                        self.main_dire
-                        / win_feats_root
-                        / str(curr_sub_id)
-                        / str(self.condition)
-                        / f"WIN_{self.window_size_ms}"
-                    )
-                else:
-                    self.data_dire_proc.append(
-                        self.main_dire
-                        / win_feats_root
-                        / str(curr_sub_id)
-                        / "silent"
-                        / f"WIN_{self.window_size_ms}"
-                    )
-                    self.data_dire_proc.append(
-                        self.main_dire
-                        / win_feats_root
-                        / str(curr_sub_id)
-                        / "vocalized"
-                        / f"WIN_{self.window_size_ms}"
-                    )
-
-        for d in self.data_dire_proc:
-            if not d.exists():
-                raise FileNotFoundError(
-                    f"Windows/features directory does not exist: {d}. "
-                    f"Did you run scripts/20_make_windows_and_features.py for window={self.window_size_ms}ms?"
-                )
+        self.data_dire_proc = check_data_directories(
+            main_data_directory=self.main_dire,
+            all_subjects_models=self.all_subjects_models,
+            sub_id=self.sub_id,
+            condition=self.condition,
+            window_size_ms=self.window_size_ms,
+            base_config=self.base_config,
+        )
 
     def _save_run_cfg(self) -> None:
         train_cfg = self.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {})
@@ -320,6 +274,7 @@ class Inter_Session_Model_Trainer:
                 else:
                     row_summary[k] = v
 
+        print(f'{self.model_master.df_test["Label_str"].value_counts()} | {self.model_master.df_test.shape[0]} test samples')
         row_summary["train_idx"] = self.model_master.df_train.index.tolist()
         row_summary["val_idx"] = self.model_master.df_val.index.tolist()
         row_summary["test_idx"] = self.model_master.df_test.index.tolist()

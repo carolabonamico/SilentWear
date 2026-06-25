@@ -13,7 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 from models.seeds import *
 from models.utils import compute_metrics
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
 import torch
@@ -462,7 +462,9 @@ class TorchTrainer:
 ################################################### Standalone functions ########################
 
 
-def evaluate_model(model, test_loader, strategy: TaskStrategy):
+def evaluate_model(
+    model, test_loader, strategy: TaskStrategy
+) -> Tuple[Optional[dict], Optional[np.ndarray], Optional[np.ndarray]]:
     """
     Compute predictions and metrics on the test set using the provided model, test_loader, and strategy.
     """

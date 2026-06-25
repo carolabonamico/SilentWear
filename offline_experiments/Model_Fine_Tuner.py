@@ -107,8 +107,8 @@ class Model_Fine_Tuner:
             raise ValueError("Trainer manager is not initialized.")
 
         zero_shot_test_df = pd.concat((self.model_master.df_train, self.model_master.df_val))
-        self.model_master.trainer_manager.test_loader = (
-            self.model_master.trainer_manager.create_dataloader_from_df(
+        self.model_master.trainer_manager.test_loader = ( # type: ignore
+            self.model_master.trainer_manager.create_dataloader_from_df( # type: ignore
                 zero_shot_test_df[self.df_col], batch_size=1, shuffle=False, num_workers=0
             )
         )

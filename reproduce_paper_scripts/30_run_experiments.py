@@ -448,7 +448,7 @@ def main():
                     base_cfg_w.setdefault("window", {})
                     base_cfg_w["window"]["window_size_s"] = float(w_s)
                     _run_one_subject_condition(
-                        "train_from_scratch", base_cfg_w, model_cfg, sub, cond, ft_cfg, tfs_cfg
+                        "train_from_scratch", base_cfg_w, model_cfg, sub, cond, None, tfs_cfg
                     )
 
     if "inter_session_ft" in args.experiment:
@@ -464,7 +464,7 @@ def main():
                     base_cfg_w.setdefault("window", {})
                     base_cfg_w["window"]["window_size_s"] = float(w_s)
                     _run_one_subject_condition(
-                        "inter_session_ft", base_cfg_w, model_cfg, sub, cond, ft_cfg, tfs_cfg
+                        "inter_session_ft", base_cfg_w, model_cfg, sub, cond, ft_cfg, None
                     )
 
 if __name__ == "__main__":

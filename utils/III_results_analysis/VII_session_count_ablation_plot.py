@@ -7,12 +7,12 @@
 
 """
 Standalone Plotting Script for Session Count Ablation Studies
-=============================================================
+
 Reads the outputs directly from the folder structure generated
 by Session_Count_Ablation_Trainer.py.
 
 Expected folder hierarchy
-─────────────────────────
+
 session_count_ablation:
   {args.artifacts_dir}/{n}_sess/models/{exp}/{subject}/{condition}/{net_id}/{window_id}/{model_run}/cv_summary.csv
 """

@@ -182,7 +182,7 @@ def _ft_output_root(
     base_cfg: dict, model_cfg: dict, ft_cfg: dict, sub: str, cond: str, model_id: str
 ) -> Path:
     model_name = model_cfg["model"]["name"]
-    model_id = ft_cfg.get("model_name_id", base_cfg.get("model_name_id", "w1400ms"))
+    model_id = model_id or ft_cfg.get("model_name_id", base_cfg.get("model_name_id", "w1400ms"))
     artifacts_root = Path(base_cfg["data"]["models_main_directory"])
 
     return artifacts_root / "models" / "inter_session_ft" / sub / cond / model_name / model_id
@@ -220,11 +220,13 @@ def run_ft_for(
     csv_summary = open_file(model_base_folder / "cv_summary.csv")
 
     model_to_ft_name = ft_cfg.get("model_ft_name", None)
+    # The number of inter-session base models equals the number of LOSO folds,
+    # i.e. the number of sessions (one held-out session per fold).
+    expected_num = len(csv_summary) if csv_summary is not None else 3
     ft_models_in_folder = check_base_models_exist(
         model_base_folder=model_base_folder,
         model_to_ft_name=model_to_ft_name,
-        expected_in_dir={"base_models_prefix": "leave_one_session_out_fold", "expected_num": 3},
-    )
+        expected_in_dir={"base_models_prefix": "leave_one_session_out_fold", "expected_num": expected_num},)
 
     # FT output root (separate from base inter-session folder)
     ft_root = _ft_output_root(
@@ -296,7 +298,7 @@ def run_ft_for(
                 df_batch_base,
                 test_size=0.3,
                 shuffle=True,
-                random_state=42,
+                random_state=int(base_cfg_used.get("experiment", {}).get("seed", 0)),
                 stratify=df_batch_base["Label_int"],
             )
 
@@ -320,8 +322,8 @@ def run_ft_for(
             metrics_before = model_fine_tuner.test_zero_shot_acc()
             if metrics_before is None:
                 raise ValueError("Zero-shot metrics are missing.")
-            batch_loader = model_fine_tuner.model_master.trainer_manager.test_loader
-            strategy = model_fine_tuner.model_master.trainer_manager.strategy
+            batch_loader = model_fine_tuner.model_master.trainer_manager.test_loader # type: ignore
+            strategy = model_fine_tuner.model_master.trainer_manager.strategy # type: ignore
             metrics_without_ft, _, _ = evaluate_model(model_intersess, batch_loader, strategy)
             if metrics_without_ft is None:
                 raise ValueError("Metrics without FT are missing.")

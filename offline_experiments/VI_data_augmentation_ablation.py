@@ -33,6 +33,11 @@ from utils.I_data_preparation.read_bio_file import parse_bio_filename
 from utils.general_utils import SubjectConfig, load_all_h5files_from_folder
 from utils.II_feature_extraction.win_feature_extraction_main import Global_Windower_and_Feature_Extractor
 from offline_experiments.general_utils import discover_sessions
+from utils.I_data_preparation.experimental_config import (
+    RAW_DIRNAME,
+    RAW_AND_FILTERED_DIRNAME,
+    WINS_AND_FEATURES_DIRNAME,
+)
 
 
 class Data_Augmentation_Ablation_Trainer:
@@ -67,20 +72,28 @@ class Data_Augmentation_Ablation_Trainer:
         return window_value / 1000.0 if window_value > 10 else window_value
 
     def _ensure_combo_data_root(self, combo_root: Path) -> Path:
-        """Ensure the ablation workspace exposes the same folders the extractor expects."""
+        """Ensure the ablation workspace exposes the same folders the extractor expects.
+
+        The windower reads filtered recordings from ``data_raw_and_filt``; mirror it
+        (and the raw ``.bio`` folder when present) into the combo workspace so the
+        extractor finds the inputs.
+        """
         combo_root.mkdir(parents=True, exist_ok=True)
 
-        shared_dirs = {
-            "raw": self.data_dir / "raw",
-            "raw_and_processed": self.data_dir / "raw_and_processed",
-        }
+        # (folder_name, source, required)
+        shared_dirs = [
+            (RAW_AND_FILTERED_DIRNAME, self.data_dir / RAW_AND_FILTERED_DIRNAME, True),
+            (RAW_DIRNAME, self.data_dir / RAW_DIRNAME, False),
+        ]
 
-        for folder_name, source in shared_dirs.items():
+        for folder_name, source, required in shared_dirs:
+            if not source.exists():
+                if required:
+                    raise FileNotFoundError(f"Missing shared source folder: {source}")
+                continue  # optional source (raw .bio), skip if absent
             target = combo_root / folder_name
             if target.exists() or target.is_symlink():
                 target.unlink()
-            if not source.exists():
-                raise FileNotFoundError(f"Missing shared source folder: {source}")
             target.symlink_to(source.resolve(), target_is_directory=True)
         return combo_root
 
@@ -108,6 +121,10 @@ class Data_Augmentation_Ablation_Trainer:
         cfg["condition"] = str(self.condition)
         cfg["window"]["window_size_s"] = normalized_window_s
         cfg["data_augmentation"] = deepcopy(self.data_augmentation)
+        
+        cfg.setdefault("paths", {})
+        cfg["paths"]["processed"] = RAW_AND_FILTERED_DIRNAME
+        cfg["paths"]["win_and_feats"] = WINS_AND_FEATURES_DIRNAME
 
         with tempfile.TemporaryDirectory() as td:
             tmp_cfg = Path(td) / "create_windows_tmp.yaml"
@@ -261,7 +278,7 @@ def main():
             "experiment_type": "global",
             "data_augmentation": data_augmentation,
             "run_label": run_label,
-            "ablation_folder_name": ablation_folder_name, # Passiamo il nome cartella dinamicamente
+            "ablation_folder_name": ablation_folder_name,  # Pass the folder name dynamically
         }
 
         for window_s in args.aug_windows_s:
@@ -309,7 +326,7 @@ def main():
                                 "experiment_type": current_exp,
                                 "data_augmentation": data_augmentation,
                                 "run_label": run_label,
-                                "ablation_folder_name": ablation_folder_name, # Passiamo il nome cartella dinamicamente
+                                "ablation_folder_name": ablation_folder_name,  # Pass the folder name dynamically
                             }
 
                             print(f"-> {current_exp.upper()} | {run_label} | {n_sessions} Sess | {subject} | {condition} | w={window_s}s")

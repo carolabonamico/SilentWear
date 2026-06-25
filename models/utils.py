@@ -10,6 +10,7 @@ Utils function for models
 
 import sys
 from pathlib import Path
+from typing import Optional, Tuple, Union
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +23,8 @@ from sklearn.metrics import (
 )
 from models.models_factory import ModelSpec, build_model_from_spec
 import torch
-from utils.I_data_preparation.experimental_config import FS, get_active_labels
+import torch.nn as nn
+from utils.I_data_preparation.experimental_config import FS, get_active_labels, build_label_maps
 
 
 def compute_metrics(y_true, y_pred):
@@ -70,16 +72,13 @@ def compute_metrics(y_true, y_pred):
     return metrics, y_true, y_pred
 
 
-import torch.nn as nn
-
-
-def count_params(model: nn.Module):
+def count_params(model: nn.Module) -> Tuple[int, int]:
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return total, trainable
 
 
-def check_weights_updated(before_state_dict, model_after):
+def check_weights_updated(before_state_dict: dict, model_after: nn.Module) -> bool:
     """
     Returns True if at least one parameter tensor differs after loading.
     """
@@ -148,8 +147,20 @@ def resolve_num_classes_from_cfg(
         return len([k for k in original_label_map if k != 0])
 
 
-def load_pretrained_model(base_cfg, model_cfg, pretrained_model_path):
-    num_classes = resolve_num_classes_from_cfg(base_cfg, model_cfg)
+def load_pretrained_model(
+    base_cfg: dict,
+    model_cfg: dict,
+    pretrained_model_path: Union[str, Path],
+    train_label_map: Optional[dict] = None,
+) -> Optional[nn.Module]:
+    # CTC needs the training label map to size the output vocabulary. Rebuild it
+    # from the config when the caller did not supply one.
+    if train_label_map is None:
+        include_rest = bool(base_cfg.get("experiment", {}).get("include_rest", False))
+        label_mode = base_cfg.get("experiment", {}).get("label_mode", "word")
+        train_label_map, _, _ = build_label_maps(label_mode, include_rest)
+
+    num_classes = resolve_num_classes_from_cfg(base_cfg, model_cfg, train_label_map=train_label_map)
 
     spec = ModelSpec(
         kind=model_cfg["model"]["kind"],
@@ -157,8 +168,11 @@ def load_pretrained_model(base_cfg, model_cfg, pretrained_model_path):
         kwargs=model_cfg["model"]["kwargs"],
     )
 
+    channel_order = base_cfg.get("channel_order")
+    num_channels = len(channel_order) if channel_order else 14
+
     ctx = {
-        "num_channels": 14,
+        "num_channels": num_channels,
         "num_samples": int(base_cfg["window"]["window_size_s"] * FS),
         "num_classes": num_classes,
     }
@@ -185,7 +199,7 @@ def load_pretrained_model(base_cfg, model_cfg, pretrained_model_path):
         return None
     
 
-def save_model_architecture_to_csv(model: nn.Module, model_name: str) -> Path:
+def save_model_architecture_to_csv(model: nn.Module, model_name: str) -> Optional[Path]:
     """
     Extract layer-wise parameter information and save it to a CSV file.
     """

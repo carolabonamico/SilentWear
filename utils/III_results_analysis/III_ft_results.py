@@ -53,7 +53,7 @@ from matplotlib.lines import Line2D
 import matplotlib.patches as patches
 
 # Project-level imports
-project_root = Path().resolve()
+project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 from utils.general_utils import open_file
 

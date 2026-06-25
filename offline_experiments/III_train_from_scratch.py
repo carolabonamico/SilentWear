@@ -248,7 +248,7 @@ def run_train_from_scratch_for(
                 df_batch_base,
                 test_size=0.3,
                 shuffle=True,
-                random_state=42,
+                random_state=int(base_cfg.get("experiment", {}).get("seed", 0)),
                 stratify=df_batch_base["Label_int"],
             )
 

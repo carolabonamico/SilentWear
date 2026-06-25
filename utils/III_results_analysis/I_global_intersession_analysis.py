@@ -202,10 +202,6 @@ def _parse_cm_cell(x) -> np.ndarray:
 
 def mean_std_confusion_matrices(series: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
     mats = [_parse_cm_cell(v) for v in series.values]
-    
-    for idx, m in enumerate(mats):
-        print(f"Matrice {idx} ha forma: {m.shape}")
-        
     stack = np.stack(mats, axis=0)  # [fold, i, j]
     return stack.mean(axis=0), stack.std(axis=0)
 

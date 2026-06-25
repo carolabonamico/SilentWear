@@ -29,8 +29,6 @@ from utils.I_data_preparation.read_bio_file import parse_bio_filename
 from utils.general_utils import load_all_h5files_from_folder
 from offline_experiments.general_utils import discover_sessions
 
-DATA_DIR = REPO_ROOT / "data" / "data_3_subjects_4_sessions_in_order_ACTUAL"
-ARTIFACTS_DIR = REPO_ROOT / "artifacts_ablation" / "session_count_ablation"
 DEFAULT_WINDOWS_S = [1.4]
 DEFAULT_SUBJECTS = ["S01", "S02", "S03", "S04"]
 DEFAULT_EXPERIMENTS = ["global", "inter_session"]
@@ -110,7 +108,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base_config", type=Path, required=True)
     ap.add_argument("--model_config", type=Path, required=True)
-    ap.add_argument("--data_dir", type=Path, default=DATA_DIR)
+    ap.add_argument("--data_dir", type=Path, required=True)
     ap.add_argument("--artifacts_dir", type=Path, required=True)
     ap.add_argument("--experiment", nargs="+", choices=DEFAULT_EXPERIMENTS, default=DEFAULT_EXPERIMENTS)
     ap.add_argument("--subjects", nargs="+", default=DEFAULT_SUBJECTS)

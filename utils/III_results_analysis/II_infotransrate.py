@@ -308,8 +308,8 @@ def _plot_subjects_plus_average_single_box(
     ax.tick_params(axis="y", which="both", colors="blue")
     ax.spines["left"].set_color("blue")
 
-    # ITR axis scale: auto based on data (safer than hardcoding 200)
-    itr_max = float(np.nanmax(df_condition["itr_mean"].to_numpy()))
+    # ITR axis scale: auto based on data
+    # itr_max = float(np.nanmax(df_condition["itr_mean"].to_numpy()))
     # itr_ylim = max(50.0, np.ceil((itr_max + 10.0) / 25.0) * 25.0)
     ax2.set_ylim(0, 200)
     ax2.yaxis.set_major_locator(MultipleLocator(25))

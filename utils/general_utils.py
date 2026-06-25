@@ -15,23 +15,31 @@ import json
 from typing import Any, Iterable, Optional
 import matplotlib.pyplot as plt
 
+from utils.I_data_preparation.experimental_config import (
+    RAW_AND_FILTERED_DIRNAME,
+    WINS_AND_FEATURES_DIRNAME,
+)
+
 ######################################### SUBJECT CONFIGURATION CLASS #################################################
 
 
 class SubjectConfig:
-    def __init__(self, yaml_file=Path("config.yaml")):
+    def __init__(self, yaml_file: Path = Path("config.yaml")) -> None:
         with open(yaml_file, "r") as f:
             cfg = yaml.safe_load(f)
 
         self.data_directory = Path(cfg["data"]["data_directory"])
         self.subject_id = cfg["data"]["subject_id"]
 
-        self.raw_dir = self.data_directory / "raw" / self.subject_id
-        self.processed_dir = self.data_directory / "processed" / self.subject_id
-        self.wins_and_feats_dir = self.data_directory / "win_and_feats" / self.subject_id
+        # Folder names are resolved from cfg["paths"] when present, otherwise from the
+        # canonical constants. This keeps the read side (trainers) and write side
+        # (windower) pointing at a single source of truth.
+        paths_cfg = cfg.get("paths", {}) or {}
+        self.raw_and_filtered_dirname = paths_cfg.get("processed", RAW_AND_FILTERED_DIRNAME)
+        self.wins_and_features_dirname = paths_cfg.get("win_and_feats", WINS_AND_FEATURES_DIRNAME)
 
-        # self.silent_dir = self.processed_dir / "silent"
-        # self.vocalized_dir = self.processed_dir / "vocalized"
+        self.raw_and_filtered_dir = self.data_directory / self.raw_and_filtered_dirname / self.subject_id
+        self.wins_and_feats_dir = self.data_directory / self.wins_and_features_dirname / self.subject_id
 
         self.window_size_s = cfg["window"]["window_size_s"]
         self.data_augmentation = cfg.get("data_augmentation")
@@ -47,7 +55,7 @@ class SubjectConfig:
 
 
 ### TO-DO: remove these functions, fix scripts using them using open_file (added later)
-def load_yaml_config(config_path=Path("config.yaml")):
+def load_yaml_config(config_path: Path = Path("config.yaml")) -> dict:
     with open((config_path), "r") as f:
         cfg = yaml.safe_load(f)
     return cfg
@@ -176,7 +184,7 @@ def load_subjects_data(
 ######################################### Datasets UTILS #################################################
 
 
-def print_dataset_summary_statistics(df):
+def print_dataset_summary_statistics(df: pd.DataFrame) -> None:
     print("\nLoaded DataFrame Summary")
     print(f"Total rows: {len(df)}")
     print(f"Total columns: {len(df.columns)}")

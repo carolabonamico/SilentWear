@@ -10,6 +10,7 @@ File Containing Main Model Orchestrator
 
 import sys
 from pathlib import Path
+from typing import Optional
 
 import torch
 import pandas as pd
@@ -20,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
-from utils.I_data_preparation.experimental_config import FS, get_active_labels
+from utils.I_data_preparation.experimental_config import FS, get_active_labels, build_label_maps
 from models.models_factory import ModelSpec, build_model_from_spec
 from models.utils import resolve_num_classes_from_cfg, save_model_architecture_to_csv
 from models.SklearnTrainer import *
@@ -92,33 +93,15 @@ class Model_Master:
           - orig_to_train:  {orig_id: train_id}
           - num_classes
         """
-        include_rest = self.base_config["experiment"]["include_rest"]
-        original_map = self.original_label_map
+        include_rest = bool(self.base_config["experiment"]["include_rest"])
 
-        # Added distinction w.r.t. S00 (which had different labels)
+        # S00 used a different label scheme and is handled separately.
         if self.base_config["data"]["subject_id"] != "S00":
-            if include_rest:
-                print("Rest included")
-                # identity mapping
-                self.train_label_map = original_map.copy()
-                self.train_to_orig = {k: k for k in original_map.keys()}
-                self.orig_to_train = {k: k for k in original_map.keys()}
-            else:
-                # remove rest (assumes rest is orig label 0)
-                filtered_items = [(k, v) for k, v in original_map.items() if k != 0]
-
-                self.train_label_map = {
-                    new_k: text for new_k, (_, text) in enumerate(filtered_items)
-                }
-                print(self.train_label_map)
-
-                self.train_to_orig = {
-                    new_k: orig_k for new_k, (orig_k, _) in enumerate(filtered_items)
-                }
-                self.orig_to_train = {
-                    orig_k: new_k for new_k, (orig_k, _) in enumerate(filtered_items)
-                }
+            self.train_label_map, self.train_to_orig, self.orig_to_train = build_label_maps(
+                self.label_mode, include_rest
+            )
         else:
+            original_map = self.original_label_map
             filtered_items = (
                 [(k, v) for k, v in original_map.items() if k != 10]
                 if not include_rest
@@ -195,10 +178,11 @@ class Model_Master:
         """
         if self.kind == "ml":
             # Model config must specify features to consider
+            features_cfg = self.model_config.get("model", {}).get("features", {}) or {}
             features = feature_names_to_consider(
-                consider_time_feats=self.model_config.get("time_features", True),
-                consider_freq_feats=self.model_config.get("freq_features", True),
-                consider_wavelet_feats=self.model_config.get("wavelet_features", True),
+                consider_time_feats=features_cfg.get("time_features", True),
+                consider_freq_feats=features_cfg.get("freq_features", True),
+                consider_wavelet_feats=features_cfg.get("wavelet_features", True),
             )
 
             cols_train = feature_columns_to_consider(features, self.df_train)
@@ -391,7 +375,6 @@ class Model_Master:
             self.trainer_manager = SklearnTrainer(
                 estimator=self.model,
                 df_train=self.df_train[cols],
-                df_val=None,
                 df_test=self.df_test[cols],
                 label_col="Label_train",
             )
@@ -399,9 +382,10 @@ class Model_Master:
             assert train_cfg is not None
             if loss_name == "ctc":
                 ctc_cfg = train_cfg["ctc"]
+                allow_nearest = ctc_cfg.get("allow_nearest_word_match", ctc_cfg.get("allow_nearest_match", True))
                 strategy = CTCStrategy(
                     text_mapper,
-                    allow_nearest_match=bool(ctc_cfg.get("allow_nearest_match", True)),
+                    allow_nearest_match=bool(allow_nearest),
                 )
             else:
                 strategy = CrossEntropyStrategy()
@@ -422,7 +406,7 @@ class Model_Master:
         if self.kind == "dl":
             save_model_architecture_to_csv(self.model, model_name)
             
-    def train_model(self, save_model_path: Optional[Path] = None, test: Optional[bool] = True):
+    def train_model(self, save_model_path: Optional[Path] = None, test: bool = True):
         """
         Main Model Trainer
         """

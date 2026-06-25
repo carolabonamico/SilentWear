@@ -129,9 +129,6 @@ def main() -> None:
                 cfg["data"]["data_directory"] = str(args.data_dir)
                 cfg["data"]["subject_id"] = str(sub)
 
-                # Some pipelines keep condition in config; set if present/expected
-                cfg["condition"] = str(cond)
-
                 cfg.setdefault("window", {})
                 cfg["window"]["window_size_s"] = float(window_s)
 
@@ -153,7 +150,9 @@ def main() -> None:
                     tmp_cfg.write_text(yaml.safe_dump(cfg, sort_keys=False))
 
                     subject_cfg = SubjectConfig(tmp_cfg)
-                    extractor = Global_Windower_and_Feature_Extractor(subject_cfg)
+                    extractor = Global_Windower_and_Feature_Extractor(
+                        subject_cfg, conditions=[cond]
+                    )
                     print("extractor initialized")
                     extractor.main()
 
