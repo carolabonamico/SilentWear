@@ -6,6 +6,7 @@ Script to visualize windowed features for each text unit and condition in a grid
 import os
 import sys
 import argparse
+import re
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -270,7 +271,7 @@ if __name__ == "__main__":
                     sess_str = "all" if current_sess is None else str(current_sess)
                     batch_str = "all" if current_batch is None else str(current_batch)  
                     
-                    print(f"Generating isolated plots | Subject: {current_sub} | Window: {current_win}ms | Session: {sess_str} | Batch: {batch_str}")
+                    print(f"Loading data | Subject: {current_sub} | Window: {current_win}ms | Session: {sess_str} | Batch: {batch_str}")
                     
                     h5_files, conditions_list = find_wins_h5(
                         wins_root_dir=args.wins_root, 
@@ -291,51 +292,83 @@ if __name__ == "__main__":
                         print(f"No data loaded for {current_sub} (Sess: {sess_str}, Batch: {batch_str}). Skipping...")
                         continue
 
-                    ch_cols = [col for col in ordered_cols if col in df.columns]
-                    
-                    spacing_factor = 10
-                    margin_factor = 2
-                    global_spacing_map = {}
-                    
-                    for cond in conditions_list:
-                        df_cond = df[df["condition"] == cond]
-                        all_signals = []
-                        for col in ch_cols:
-                            flat_signal = _concat_windows(df_cond[col])
-                            if len(flat_signal) > 0:
-                                all_signals.append(flat_signal)
-                        
-                        if all_signals:
-                            X_all = np.concatenate(all_signals)
-                            amp_ref = float(np.nanpercentile(np.abs(X_all), 95))
-                            spacing = spacing_factor * amp_ref if amp_ref > 0 else 1.0
-                        else:
-                            spacing = 1.0
-                            
-                        n_ch = len(ch_cols)
-                        ylims = (-margin_factor * spacing, (n_ch - 1) * spacing + margin_factor * spacing)
-                        
-                        global_spacing_map[cond] = {
-                            "spacing": spacing,
-                            "ylims": ylims
-                        }
-
-                    active_labels = get_active_labels(args.label_mode)
-                    ordered_texts = [active_labels[i] for i in sorted(active_labels.keys())]
-                    texts = [t for t in ordered_texts if t in df["Label_str"].unique() and t not in exclude_words]
-
-                    current_save_dir = Path(args.out_dir) / current_sub / f"WIN_{current_win}" / f"sess_{sess_str}"
-                    current_save_dir.mkdir(parents=True, exist_ok=True)
-
-                    for text in texts:
-                        out_path = current_save_dir / f"{text}_sess_{sess_str}_batch_{batch_str}.{args.output_ext}"
-                        
-                        plot_windows_per_text(
-                            df=df,
-                            text=text,
-                            conditions_list=conditions_list,
-                            ch_cols=ch_cols,
-                            global_spacing_map=global_spacing_map,
-                            save_path=out_path,
-                            time_xlim_s=current_win / 1000.0,
+                    if "session_id" not in df.columns:
+                        df["session_id"] = df["source_file"].apply(
+                            lambda x: int(m.group(1)) if (m := re.search(r"sess_(\d+)", x)) else None
                         )
+                    if "batch_id" not in df.columns:
+                        df["batch_id"] = df["source_file"].apply(
+                            lambda x: int(m.group(1)) if (m := re.search(r"batch_(\d+)", x)) else None
+                        )
+
+                    # Finding unique sessions and batches in the DataFrame to iterate over
+                    unique_sessions = df["session_id"].dropna().unique()
+                    if len(unique_sessions) == 0:
+                        unique_sessions = [None]
+                    
+                    for act_sess in sorted(unique_sessions, key=lambda x: (x is None, x)):
+                        df_sess = df[df["session_id"] == act_sess] if act_sess is not None else df
+                        
+                        unique_batches = df_sess["batch_id"].dropna().unique()
+                        if len(unique_batches) == 0:
+                            unique_batches = [None]
+                            
+                        for act_batch in sorted(unique_batches, key=lambda x: (x is None, x)):
+                            df_batch = df_sess[df_sess["batch_id"] == act_batch] if act_batch is not None else df_sess
+                            
+                            if df_batch.empty:
+                                continue
+                            
+                            actual_sess_str = str(int(act_sess)) if act_sess is not None else "unknown"
+                            actual_batch_str = str(int(act_batch)) if act_batch is not None else "unknown"
+
+                            print(f"Generating plots for Session: {actual_sess_str} | Batch: {actual_batch_str}")
+
+                            ch_cols = [col for col in ordered_cols if col in df_batch.columns]
+                            
+                            spacing_factor = 10
+                            margin_factor = 2
+                            global_spacing_map = {}
+                            
+                            for cond in conditions_list:
+                                df_cond = df_batch[df_batch["condition"] == cond]
+                                all_signals = []
+                                for col in ch_cols:
+                                    flat_signal = _concat_windows(df_cond[col])
+                                    if len(flat_signal) > 0:
+                                        all_signals.append(flat_signal)
+                                
+                                if all_signals:
+                                    X_all = np.concatenate(all_signals)
+                                    amp_ref = float(np.nanpercentile(np.abs(X_all), 95))
+                                    spacing = spacing_factor * amp_ref if amp_ref > 0 else 1.0
+                                else:
+                                    spacing = 1.0
+                                    
+                                n_ch = len(ch_cols)
+                                ylims = (-margin_factor * spacing, (n_ch - 1) * spacing + margin_factor * spacing)
+                                
+                                global_spacing_map[cond] = {
+                                    "spacing": spacing,
+                                    "ylims": ylims
+                                }
+
+                            active_labels = get_active_labels(args.label_mode)
+                            ordered_texts = [active_labels[i] for i in sorted(active_labels.keys())]
+                            texts = [t for t in ordered_texts if t in df_batch["Label_str"].unique() and t not in exclude_words]
+
+                            current_save_dir = Path(args.out_dir) / current_sub / f"WIN_{current_win}" / f"sess_{actual_sess_str}"
+                            current_save_dir.mkdir(parents=True, exist_ok=True)
+
+                            for text in texts:
+                                out_path = current_save_dir / f"{text}_sess_{actual_sess_str}_batch_{actual_batch_str}.{args.output_ext}"
+                                
+                                plot_windows_per_text(
+                                    df=df_batch,
+                                    text=text,
+                                    conditions_list=conditions_list,
+                                    ch_cols=ch_cols,
+                                    global_spacing_map=global_spacing_map,
+                                    save_path=out_path,
+                                    time_xlim_s=current_win / 1000.0,
+                                )

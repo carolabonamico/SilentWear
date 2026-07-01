@@ -11,7 +11,7 @@ window:
   window_size_s: 1.4
 label_mode: word
 data_augmentation:
-  mode: sliding_window    # use 'disabled' for no augmentation
+  mode: disabled    # use 'disabled' for no augmentation
   stride_ms: 10
   num_strides: 2
 feature_extraction:
