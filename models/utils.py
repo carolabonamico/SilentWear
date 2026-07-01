@@ -206,7 +206,7 @@ def save_model_architecture_to_csv(model: nn.Module, model_name: str) -> Optiona
     output_dir = PROJECT_ROOT / "models" / "cnn_architectures"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    file_path = output_dir / f"{model_name}_architecture_info.csv"
+    file_path = output_dir / "architectures_info" / f"{model_name}_architecture_info.csv"
     
     if not isinstance(model, nn.Module):
         print(f"[INFO] Model {model_name} is not a torch.nn.Module. Skipping architecture extraction.")
