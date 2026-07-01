@@ -25,8 +25,6 @@ class CTCTextTransform:
         for text in vocab_texts:
             clean_text = CTCTextTransform.clean_text(text)
             for ch in clean_text:
-                if ch == " ":
-                    continue
                 if ch not in seen:
                     seen.add(ch)
                     chars.append(ch)
@@ -47,7 +45,7 @@ class CTCTextTransform:
 
     def text_to_int(self, text: str) -> list[int]:
         """Converts text to a list of integer token IDs based on the character vocabulary."""
-        clean = self.clean_text(text).replace(" ", "")
+        clean = self.clean_text(text)
         return [self.char_to_int[c] for c in clean if c in self.char_to_int]
 
     def int_to_text(self, ints: list[int]) -> str:

@@ -28,14 +28,14 @@ from fig_config import channel_colors, neckband_ch_order
 
 
 wins_root = Path("path/to/wins_root")  # Update this to the actual path where the WIN_{window_ms} folders are located
+out_dir_base = Path("./windowing_check/figures") # Base directory for saving plots
 subject_id = "S01"                     # Update this to the actual subject ID you want to process (e.g., "S01", "S02", etc.)
 window_ms = 1400                       # Update this to the desired window size in milliseconds (e.g., 400, 800, etc.) 
 conditions = None                      # Set to None to include all conditions, or specify a list of conditions to include (e.g., ["vocalized", "silent"])  
 target_session = 1                     # Set to None to include all sessions, or specify a session number to filter (e.g., 1, 2, etc.)  
 target_batch = 1                       # Set to None to include all batches, or specify a batch number to filter (e.g., 1, 2, etc.)  
 label_mode = "word"                    # "word" | "sentence"
-
-save_dir = Path(f"./windowing_check_test/figures/{subject_id}/WIN_{window_ms}/sess_{target_session if target_session is not None else 'all'}")
+process_all = False                    # Set to True to ignore target_session and target_batch and process all available data for the subject and window size
 output_ext = "png"
 exclude_words = {"rest"}
 
@@ -226,7 +226,7 @@ def plot_windows_per_text(
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(save_path, bbox_inches="tight", pad_inches=0.02, transparent=False, facecolor="white")
-    print(f"Saved plot for text {text.upper()}")
+    print(f"Saved plot for text {text.upper()}: {save_path}")
     plt.close(fig)
 
 
@@ -238,6 +238,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script to visualize windowed features.")
     
     parser.add_argument("--wins_root", type=str, default=str(wins_root), help="Path to the wins root directory.")
+    parser.add_argument("--out_dir", type=str, default=str(out_dir_base), help="Base directory to save the output figures.")
     parser.add_argument("--subject_ids", nargs="+", default=[subject_id], help="List of subject IDs to process.")
     parser.add_argument("--window_ms", nargs="+", type=int, default=[window_ms], help="List of desired window sizes in milliseconds.")
     parser.add_argument("--conditions", nargs="*", default=conditions, help="List of conditions. Leave empty for all.")
@@ -249,11 +250,17 @@ if __name__ == "__main__":
     parser.add_argument("--target_batches", nargs="*", type=int, default=default_batches, help="List of batch numbers to filter.")
     parser.add_argument("--label_mode", type=str, default=label_mode, choices=["word", "sentence"], help="Label mode: 'word' or 'sentence'.")
     parser.add_argument("--output_ext", type=str, default=output_ext, help="Extension of the saved figure.")
+    parser.add_argument("--process_all", action="store_true", default=process_all, help="Ignore targets and process all available data.")
     
     args = parser.parse_args()
 
-    sessions_to_process = args.target_sessions if args.target_sessions else [None]
-    batches_to_process = args.target_batches if args.target_batches else [None]
+    if args.process_all:
+        sessions_to_process = [None]
+        batches_to_process = [None]
+        args.conditions = None
+    else:
+        sessions_to_process = args.target_sessions if args.target_sessions else [None]
+        batches_to_process = args.target_batches if args.target_batches else [None]
 
     for current_sub in args.subject_ids:
         for current_win in args.window_ms:
@@ -263,7 +270,7 @@ if __name__ == "__main__":
                     sess_str = "all" if current_sess is None else str(current_sess)
                     batch_str = "all" if current_batch is None else str(current_batch)  
                     
-                    print(f"\nGenerating isolated plots | Subject: {current_sub} | Window: {current_win}ms | Session: {sess_str} | Batch: {batch_str}")
+                    print(f"Generating isolated plots | Subject: {current_sub} | Window: {current_win}ms | Session: {sess_str} | Batch: {batch_str}")
                     
                     h5_files, conditions_list = find_wins_h5(
                         wins_root_dir=args.wins_root, 
@@ -317,7 +324,7 @@ if __name__ == "__main__":
                     ordered_texts = [active_labels[i] for i in sorted(active_labels.keys())]
                     texts = [t for t in ordered_texts if t in df["Label_str"].unique() and t not in exclude_words]
 
-                    current_save_dir = Path(f"./windowing_check_sentences/figures/{current_sub}/WIN_{current_win}/sess_{sess_str}")
+                    current_save_dir = Path(args.out_dir) / current_sub / f"WIN_{current_win}" / f"sess_{sess_str}"
                     current_save_dir.mkdir(parents=True, exist_ok=True)
 
                     for text in texts:

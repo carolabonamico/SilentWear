@@ -18,7 +18,7 @@ FS = 500
 # These names must match the Hugging Face release layout documented in the README.
 # Every module that needs to read/write these folders must import these constants.
 RAW_DIRNAME = "raw"                                 # unfiltered .bio recordings (only present for self-collected data)
-RAW_AND_FILTERED_DIRNAME = "data_raw_and_filt"      # filtered .h5 (output of data preparation)
+RAW_AND_FILTERED_DIRNAME = "raw_and_processed"      # filtered .h5 (output of data preparation)
 WINS_AND_FEATURES_DIRNAME = "wins_and_features"     # windows + features (output of window extraction)
 WINDOW_DIR_PREFIX = "WIN_"                          # per-window-size subfolder prefix, e.g. WIN_1400
 SILENT_DIRNAME = "silent"

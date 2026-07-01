@@ -54,6 +54,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from utils.I_data_preparation.experimental_config import get_active_labels
+from utils.III_results_analysis.general_utils import build_twin_axis_blocks
 
 CM_LABEL_MODE = "both"   # "text", "code", or "both"
 
@@ -277,8 +278,10 @@ def main():
     # Outputs
     ap.add_argument("--tables_dir", type=Path, default=None)
     ap.add_argument("--figures_dir", type=Path, default=None)
-
+    
+    # Plots
     ap.add_argument("--plot_confusion_matrix", action="store_true")
+    ap.add_argument("--plot_block_scatter", action="store_true", help="Plot accuracy block plots per condition across session folds")
     ap.add_argument(
         "--transparent", action="store_true", help="Save figures with transparent background"
     )
@@ -293,9 +296,13 @@ def main():
     tables_dir = args.tables_dir if args.tables_dir else (artifacts_dir / "tables")
     figures_dir = args.figures_dir if args.figures_dir else (artifacts_dir / "figures")
     cm_figures_dir = figures_dir / "confusion_matrices"
+    block_figures_dir = figures_dir / "intersession_block_scatters"
+    
     tables_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
     cm_figures_dir.mkdir(parents=True, exist_ok=True)
+    if args.plot_block_scatter:
+        block_figures_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine model_name_ids (windows)
     if args.model_name_id:
@@ -409,6 +416,78 @@ def main():
         print(summary_subjects[["subject", "model_run", "mean_std_perc"]])
         print(f"[SAVED] {out_csv}")
 
+    # Combined session fold scatter block plot layout
+    if args.plot_block_scatter:
+        if args.experiment != "inter_session":
+            print("[WARN] --plot_block_scatter is only supported for 'inter_session' experiments. Skipping.")
+        else:
+            by_mid_only: Dict[str, Dict[str, List[RunRef]]] = {}
+            for r in runs:
+                by_mid_only.setdefault(r.model_name_id, {}).setdefault(r.condition, []).append(r)
+
+            for mid, runs_by_cond in sorted(by_mid_only.items()):
+                for cond in args.conditions:
+                    run_list_cond = runs_by_cond.get(cond, [])
+                    if not run_list_cond:
+                        continue
+
+                    series_bal: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {"Balanced Acc": {}}
+                    series_unbal: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {"Unbalanced Acc": {}}
+                    max_folds = 0
+                    valid_subjects = []
+                    label_mode_detected = "word"
+
+                    for sub in args.subjects:
+                        rr = [r for r in run_list_cond if r.subject == sub]
+                        if not rr:
+                            continue
+                        r = sorted(rr, key=lambda x: (int(x.model_run.split("_")[-1]) if x.model_run.startswith("model_") else -1))[-1]
+
+                        df = pd.read_csv(r.cv_summary_csv)
+                        if "balanced_accuracy" not in df.columns or "accuracy" not in df.columns:
+                            continue
+
+                        label_mode_detected = _read_label_mode_from_run_cfg(r.run_cfg_json)
+                        bal_acc = df["balanced_accuracy"].astype(float).to_numpy() * 100.0
+                        unbal_acc = df["accuracy"].astype(float).to_numpy() * 100.0
+
+                        if len(bal_acc) > max_folds:
+                            max_folds = len(bal_acc)
+
+                        series_bal["Balanced Acc"][sub] = {"mean": bal_acc, "std": np.zeros_like(bal_acc)}
+                        series_unbal["Unbalanced Acc"][sub] = {"mean": unbal_acc, "std": np.zeros_like(unbal_acc)}
+                        valid_subjects.append(sub)
+
+                    if not valid_subjects:
+                        continue
+
+                    # Dynamic figure instantiation
+                    n_blocks = len(valid_subjects) + 1
+                    fig, ax1 = plt.subplots(1, 1, figsize=(1.8 * n_blocks, 3.2))
+                    ax2 = ax1.twinx()
+                    x_values = np.arange(1, max_folds + 1)
+
+                    s1_styles = {"Balanced Acc": {"color": "blue", "marker": "o", "alpha": 0.95}}
+                    s2_styles = {"Unbalanced Acc": {"color": "red", "marker": "o", "alpha": 0.85}}
+
+                    build_twin_axis_blocks(
+                        ax1=ax1, ax2=ax2, subjects=valid_subjects, x_values=x_values,
+                        series1=series_bal, series2=series_unbal, series1_styles=s1_styles, series2_styles=s2_styles,
+                        with_average=True, x_label="Fold (Session)", y1_label="Balanced Accuracy (%)", y2_label="Unbalanced Accuracy (%)",
+                        y1_lim=(0, 100), y2_lim=(0, 100), y1_major_step=10, y2_major_step=10,
+                        x_tick_labels=[str(x) for x in x_values], gap=1.0, block_margin=0.5,
+                        label_y_offset=10.0, label_fontsize=10, label_position="bottom"
+                    )
+                    # Title dynamically appends data target configuration type
+                    mode_title = "Sentences" if label_mode_detected == "sentence" else "Words"
+                    ax1.set_title(f"Inter-session Performance ({mode_title}) | {cond.capitalize()} | {args.model_name}", pad=20)
+                    
+                    out_filename = block_figures_dir / f"block_plot_{cond}_{args.model_name}_{mid}.png"
+                    plt.tight_layout()
+                    fig.savefig(out_filename, bbox_inches="tight", dpi=300, transparent=args.transparent)
+                    plt.close(fig)
+                    print(f"[SAVED BLOCK PLOT] {out_filename}")
+
     # Confusion matrices: one figure per mid, all conditions side by side
     if args.plot_confusion_matrix:
         # Group runs by mid only
@@ -436,9 +515,9 @@ def main():
             
             label_mode = _read_label_mode_from_run_cfg(runs_by_cond[target_conds[0]][0].run_cfg_json)            
             if label_mode == "sentence":
-                fig = plt.figure(figsize=(5.5 * ncols * nconds, 5.5 * nrows))
+                fig = plt.figure(figsize=(5.5 * ncols * nconds, 7 * nrows))
             else:
-                fig = plt.figure(figsize=(4.8 * ncols * nconds, 4.8 * nrows))
+                fig = plt.figure(figsize=(5 * ncols * nconds, 7 * nrows))
                 
             exp_title = args.experiment.replace("_", " ").title()
             fig.suptitle(f"{exp_title} Evaluation", fontsize=24, y=1.02)
@@ -452,9 +531,11 @@ def main():
             if label_mode == "sentence":
                 wspace_colorbar = 0.4
                 wspace_between_conds = 0.4
+                fontsize = 5
             else:
-                wspace_colorbar = 0
-                wspace_between_conds = 0
+                wspace_colorbar = 0.2
+                wspace_between_conds = 0.2
+                fontsize = 7
 
             width_ratios = [width_colorbar, wspace_colorbar]
             for i in range(nconds):
@@ -467,9 +548,8 @@ def main():
             gs = gridspec.GridSpec(
                 nrows, total_gs_cols,
                 width_ratios=width_ratios,
-                wspace=0.3, 
-                hspace=0.3,
-                left=pad_left, right=pad_right, top=0.85, bottom=pad_bottom
+                wspace=0.1, hspace=0.25,
+                left=pad_left, right=pad_right, top=0.88, bottom=pad_bottom
             )
 
             total_ratio_sum = sum(width_ratios)
@@ -485,6 +565,7 @@ def main():
 
                 for cond_idx, cond in enumerate(target_conds):
                     run_list_cond = runs_by_cond.get(cond, [])
+                    summary_df = summary_dict.get(cond, pd.DataFrame())
 
                     for col_rel in range(ncols):
                         subj_idx = row * ncols + col_rel
@@ -512,7 +593,7 @@ def main():
                         text_labels = _make_cm_labels(n_classes, CM_LABEL_MODE, label_mode=label_mode)
 
                         disp = ConfusionMatrixDisplay(confusion_matrix=cm_mean, display_labels=text_labels)
-                        disp.plot(ax=ax, cmap="Blues", colorbar=False, include_values=True, values_format=".1f", text_kw={"fontsize": 5})
+                        disp.plot(ax=ax, cmap="Blues", colorbar=False, include_values=True, values_format=".1f", text_kw={"fontsize": fontsize})
 
                         last_im = ax.images[0]
                         last_im.set_clim(0.0, 1.0)
@@ -527,14 +608,13 @@ def main():
                         
                         title = f"{sub} \n Bal: {bal_mean:.1f}±{bal_std:.1f}% \n Unbal: {std_mean:.1f}±{std_std:.1f}%"
 
-                        ax.set_title(title, fontsize=12, pad=8)
+                        ax.set_title(title, fontsize=16, pad=8)
 
                         if col_rel == 0:
-                            ax.tick_params(axis="y", labelsize=10, pad=12)
+                            ax.tick_params(axis="y", labelsize=10)
                             ax.set_yticklabels(text_labels, fontsize=10)
                         else:
                             ax.set_yticklabels([])
-                            ax.tick_params(axis="y", pad=12)
                         ax.set_ylabel("")
 
                         last_subj_idx = n_subjs - 1
@@ -548,11 +628,10 @@ def main():
                             is_bottom = True
 
                         if is_bottom:
-                            ax.tick_params(axis="x", labelrotation=45, labelsize=9, pad=12)
+                            ax.tick_params(axis="x", labelrotation=45, labelsize=9)
                             ax.set_xticklabels(text_labels, ha="right", fontsize=9)
                         else:
                             ax.set_xticklabels([])
-                            ax.tick_params(axis="x", pad=12)
                         ax.set_xlabel("")
 
                 if last_im is not None:
@@ -568,8 +647,8 @@ def main():
             fig.savefig(out_fig_svg, bbox_inches="tight", transparent=args.transparent)
             fig.savefig(out_fig_png, bbox_inches="tight", dpi=300, transparent=args.transparent)
             plt.close(fig)
-            print(f"\n[SAVED] {out_fig_svg}")
-            print(f"[SAVED] {out_fig_png}")
+            print(f"[SAVED CM] {out_fig_svg}")
+            print(f"[SAVED CM] {out_fig_png}")
 
 
 if __name__ == "__main__":

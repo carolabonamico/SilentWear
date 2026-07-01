@@ -15,8 +15,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Sequence
-import sys
 from matplotlib.axes import Axes
+from matplotlib.ticker import MultipleLocator, FixedLocator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -444,7 +444,6 @@ def load_all_results(
     return summary_df
 
 
-################## For seed experiments ##################################
 def save_per_condition_seed_report_csv(
     accs_seeds_raw,  # (n_seeds, n_subjects) in 0..1 OR %
     accs_vals_seeds_raw,  # (n_seeds, n_subjects) each entry is array-like of fold vals (0..1 OR %)
@@ -627,7 +626,7 @@ def build_multi_subject_blocks(
     ax: Axes,
     subjects: Sequence[str],
     x_values: np.ndarray,
-    series: Dict[str, Dict[str, np.ndarray]],
+    series: Dict[str, Dict[str, Dict[str, np.ndarray]]],
     *,
     with_average: bool = True,
     series_styles: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -781,5 +780,199 @@ def build_multi_subject_blocks(
             c, y_top - label_y_offset, str(name),
             ha="center", va="bottom", fontsize=label_fontsize,
         )
+
+    return centers
+
+
+def build_twin_axis_blocks(
+    ax1: Axes,
+    ax2: Axes,
+    subjects: Sequence[str],
+    x_values: np.ndarray,
+    series1: Dict[str, Dict[str, Dict[str, np.ndarray]]], 
+    series2: Dict[str, Dict[str, Dict[str, np.ndarray]]],
+    series1_styles: Optional[Dict[str, Dict[str, Any]]] = None,
+    series2_styles: Optional[Dict[str, Dict[str, Any]]] = None,
+    with_average: bool = True,
+    x_label: str = "x",
+    y1_label: str = "Metric 1",
+    y2_label: str = "Metric 2",
+    y1_lim: Optional[tuple] = None,
+    y2_lim: Optional[tuple] = None,
+    y1_major_step: Optional[float] = None,
+    y2_major_step: Optional[float] = None,
+    x_tick_labels: Optional[Sequence[str]] = None,
+    gap: float = 1.0,
+    block_margin: float = 0.5,
+    label_y_offset: float = 5.0,
+    label_fontsize: int = 10,
+    label_position: str = "top",  # "top" or "bottom"
+    x_tick_rotation: int = 0,
+) -> List[float]:
+    """
+    Draw a multi-block line plot utilizing twin Y-axes (ax1 and ax2) where each 
+    subject (plus an optional "Average" block) occupies its own horizontal segment.
+    """
+
+    nX = len(x_values)
+    block_width = nX + gap
+
+    blocks: List[str] = list(subjects)
+    if with_average and len(subjects) > 1:
+        blocks.append("Average")
+
+    n_blocks = len(blocks)
+
+    if series1_styles is None:
+        series1_styles = {list(series1.keys())[0]: {"color": "blue", "marker": "o"}}
+    if series2_styles is None:
+        series2_styles = {list(series2.keys())[0]: {"color": "red", "marker": "o"}}
+
+    # Grid setup (only on primary axis)
+    ax1.grid(True, which="major", linewidth=0.35, alpha=0.20)
+    ax2.grid(False)
+
+    centers: List[float] = []
+    pos_map = {float(v): j for j, v in enumerate(x_values)}
+
+    all_means_1: Dict[str, List[np.ndarray]] = {s: [] for s in series1}
+    all_stds_1: Dict[str, List[np.ndarray]] = {s: [] for s in series1}
+    all_means_2: Dict[str, List[np.ndarray]] = {s: [] for s in series2}
+    all_stds_2: Dict[str, List[np.ndarray]] = {s: [] for s in series2}
+
+    already_labelled: set = set()
+
+    for bi, name in enumerate(blocks):
+        start = bi * block_width
+        
+        # Draw alternating background shades
+        face = "#f4f4f4" if (bi % 2 == 1) else "#ffffff"
+        ax1.axvspan(start - block_margin, start + nX - 1 + block_margin, color=face, zorder=0)
+
+        # Plot Series 1 (Left Y-Axis)
+        for sname, subj_data in series1.items():
+            if name == "Average":
+                means_stack = np.array(all_means_1[sname])
+                stds_stack  = np.array(all_stds_1[sname])
+                if means_stack.size == 0:
+                    continue
+                y_mean = np.nanmean(means_stack, axis=0)
+                y_std  = np.nanstd(means_stack, axis=0)
+            else:
+                entry = subj_data.get(name)
+                if entry is None:
+                    continue
+                y_mean = np.asarray(entry["mean"], dtype=float)
+                y_std  = np.asarray(entry["std"],  dtype=float)
+                all_means_1[sname].append(y_mean)
+                all_stds_1[sname].append(y_std)
+
+            x_plot = np.array([start + pos_map[float(v)] for v in x_values], dtype=float)
+            style = series1_styles.get(sname, {"color": "blue", "marker": "o"})
+            do_label = sname not in already_labelled
+            
+            ax1.errorbar(
+                x_plot, y_mean, yerr=y_std,
+                fmt=f"-{style.get('marker', 'o')}",
+                color=style.get("color", "blue"),
+                markersize=style.get("markersize", 3),
+                linewidth=style.get("linewidth", 0.5),
+                capsize=style.get("capsize", 2),
+                alpha=style.get("alpha", 0.95),
+                label=sname if do_label else None,
+            )
+            if do_label:
+                already_labelled.add(sname)
+
+        # Plot Series 2 (Right Y-Axis)
+        for sname, subj_data in series2.items():
+            if name == "Average":
+                means_stack = np.array(all_means_2[sname])
+                stds_stack  = np.array(all_stds_2[sname])
+                if means_stack.size == 0:
+                    continue
+                y_mean = np.nanmean(means_stack, axis=0)
+                y_std  = np.nanstd(means_stack, axis=0)
+            else:
+                entry = subj_data.get(name)
+                if entry is None:
+                    continue
+                y_mean = np.asarray(entry["mean"], dtype=float)
+                y_std  = np.asarray(entry["std"],  dtype=float)
+                all_means_2[sname].append(y_mean)
+                all_stds_2[sname].append(y_std)
+
+            x_plot = np.array([start + pos_map[float(v)] for v in x_values], dtype=float)
+            style = series2_styles.get(sname, {"color": "red", "marker": "o"})
+            do_label = sname not in already_labelled
+            
+            ax2.errorbar(
+                x_plot, y_mean, yerr=y_std,
+                fmt=f"-{style.get('marker', 'o')}",
+                color=style.get("color", "red"),
+                markersize=style.get("markersize", 3),
+                linewidth=style.get("linewidth", 0.5),
+                capsize=style.get("capsize", 2),
+                alpha=style.get("alpha", 0.85),
+                label=sname if do_label else None,
+            )
+            if do_label:
+                already_labelled.add(sname)
+
+        centers.append(start + (nX - 1) / 2.0)
+
+    # Setup ticks and labels
+    major_xticks, major_xlabels, minor_xticks = [], [], []
+    tick_labels = x_tick_labels if x_tick_labels is not None else [str(v) for v in x_values]
+    
+    for bi in range(n_blocks):
+        start = bi * block_width
+        for j, (v, lbl) in enumerate(zip(x_values, tick_labels)):
+            minor_xticks.append(start + j)
+            major_xticks.append(start + j)
+            major_xlabels.append(lbl)
+
+    ax1.xaxis.set_major_locator(FixedLocator(major_xticks))
+    ax1.set_xticklabels(major_xlabels, rotation=x_tick_rotation, ha="center", fontsize=8)
+    ax1.tick_params(axis="x", which="major", length=3, width=0.7)
+    
+    # Global Layout
+    ax1.set_xlim(-block_margin, (n_blocks - 1) * block_width + nX - 1 + block_margin)
+    ax1.set_xlabel(x_label)
+    
+    ax1.set_ylabel(y1_label, color="blue")
+    ax1.tick_params(axis="y", colors="blue")
+    ax1.spines["left"].set_color("blue")
+    if y1_lim is not None:
+        ax1.set_ylim(*y1_lim)
+    if y1_major_step is not None:
+        ax1.yaxis.set_major_locator(MultipleLocator(y1_major_step))
+
+    ax2.set_ylabel(y2_label, color="red")
+    ax2.tick_params(axis="y", colors="red")
+    ax2.spines["right"].set_color("red")
+    ax2.spines["top"].set_visible(False)
+    ax2.spines["bottom"].set_visible(False)
+    if y2_lim is not None:
+        ax2.set_ylim(*y2_lim)
+    if y2_major_step is not None:
+        ax2.yaxis.set_major_locator(MultipleLocator(y2_major_step))
+
+    # Add block name labels at the top
+    y_top = ax1.get_ylim()[1] if y1_lim is None else y1_lim[1]
+    y_bottom = ax1.get_ylim()[0] if y1_lim is None else y1_lim[0]
+    for c, name in zip(centers, blocks):
+        if label_position.lower() in ["up", "top"]:
+            # Upper position (default)
+            ax1.text(
+                c, y_top - label_y_offset, str(name),
+                ha="center", va="bottom", fontsize=label_fontsize,
+            )
+        else:
+            # Down position
+            ax1.text(
+                c, y_bottom + label_y_offset, str(name),
+                ha="center", va="bottom", fontsize=label_fontsize,
+            )
 
     return centers

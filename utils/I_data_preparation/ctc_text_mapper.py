@@ -34,14 +34,6 @@ class CTCTextMapper(CTCTextTransform):
         self.text_to_label_map = {
             text: label for label, text in self.label_to_text_map.items()
         }
-        # CTC decoding drops spaces (the character vocabulary excludes the space
-        # token), so a sentence label like "move forward" is decoded as
-        # "moveforward". Keep a space-collapsed lookup so the exact-match path is
-        # reachable for multi-word labels instead of always falling back to
-        # nearest-match.
-        self._collapsed_text_to_label = {
-            text.replace(" ", ""): label for text, label in self.text_to_label_map.items()
-        }
 
         self.lexicon_texts = []
         if lexicon_path:
@@ -126,15 +118,11 @@ class CTCTextMapper(CTCTextTransform):
 
         return texts
 
-    def _closest_known_label(self, collapsed_text: str) -> int | None:
-        """Find nearest train label by edit distance on space-collapsed texts."""
-        if not collapsed_text or not self._collapsed_text_to_label:
+    def _closest_known_text(self, text: str) -> str | None:
+        """Find nearest train label text by edit distance for lexicon-constrained decoding."""
+        if not text or not self.text_to_label_map:
             return None
-        nearest = min(
-            self._collapsed_text_to_label,
-            key=lambda candidate: editdistance.eval(collapsed_text, candidate),
-        )
-        return self._collapsed_text_to_label[nearest]
+        return min(self.text_to_label_map, key=lambda candidate: editdistance.eval(text, candidate))
 
     def texts_to_label_int(
         self, texts: List[str], allow_nearest: bool = True
@@ -147,21 +135,21 @@ class CTCTextMapper(CTCTextTransform):
         unknown = 0
 
         for raw_text in texts:
-            collapsed = self.clean_text(raw_text).replace(" ", "")
+            text = self.clean_text(raw_text)
 
-            if collapsed in self._collapsed_text_to_label:
-                preds.append(int(self._collapsed_text_to_label[collapsed]))
+            if text in self.text_to_label_map:
+                preds.append(int(self.text_to_label_map[text]))
                 continue
 
-            if collapsed == "":
+            if text == "":
                 preds.append(-1)
                 unknown += 1
                 continue
 
             if allow_nearest:
-                nearest_label = self._closest_known_label(collapsed)
-                if nearest_label is not None:
-                    preds.append(int(nearest_label))
+                nearest = self._closest_known_text(text)
+                if nearest is not None:
+                    preds.append(int(self.text_to_label_map[nearest]))
                     continue
 
             preds.append(-1)
