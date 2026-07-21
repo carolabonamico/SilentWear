@@ -26,7 +26,7 @@ from models.models_factory import ModelSpec, build_model_from_spec
 from models.utils import resolve_num_classes_from_cfg, save_model_architecture_to_csv
 from models.SklearnTrainer import *
 from models.TorchTrainer import *
-from models.strategies import CrossEntropyStrategy, CTCStrategy
+from models.strategies import CrossEntropyStrategy, CTCStrategy, CTCRecognitionStrategy
 from utils.I_data_preparation.ctc_text_mapper import CTCTextMapper, DEFAULT_BLANK_ID
 import re
 from offline_experiments.general_utils import (
@@ -312,10 +312,12 @@ class Model_Master:
                 "For loss_name='ctc', provide model.kwargs.train_cfg.ctc.lexicon_path."
             )
 
+        decoding = str(ctc_cfg.get("decoding", "lexicon")).lower()
         return CTCTextMapper(
             lexicon_path=lexicon_path,
             train_label_map=self.train_label_map,
             blank_id=ctc_cfg.get("blank_id", DEFAULT_BLANK_ID),
+            use_full_alphabet=(decoding == "recognition"),
         )
 
     def register_model(self) -> None:
@@ -382,11 +384,33 @@ class Model_Master:
             assert train_cfg is not None
             if loss_name == "ctc":
                 ctc_cfg = train_cfg["ctc"]
-                allow_nearest = ctc_cfg.get("allow_nearest_word_match", ctc_cfg.get("allow_nearest_match", True))
-                strategy = CTCStrategy(
-                    text_mapper,
-                    allow_nearest_match=bool(allow_nearest),
-                )
+                decoding = str(ctc_cfg.get("decoding", "lexicon")).lower()
+                decode_strategy = str(ctc_cfg.get("decode_strategy", "greedy")).lower()
+                beam_width = int(ctc_cfg.get("beam_width", 10))
+                label_smoothing = float(ctc_cfg.get("label_smoothing", 0.0))
+                if decoding == "recognition":
+                    # Free-character CTC: decode collapsed strings (greedy or
+                    # beam), score with WER/CER (closed-set references).
+                    strategy = CTCRecognitionStrategy(
+                        text_mapper,
+                        decode_strategy=decode_strategy,
+                        beam_width=beam_width,
+                        label_mode=self.label_mode,
+                        label_smoothing=label_smoothing,
+                    )
+                else:
+                    allow_nearest = ctc_cfg.get("allow_nearest", True)
+                    # Classification decision rule: 'nearest' or 'score' 
+                    # (exact closed-set ML via CTC scoring). Only meaningful in lexicon mode.
+                    lexicon_decision = str(ctc_cfg.get("lexicon_decision", "nearest")).lower()
+                    strategy = CTCStrategy(
+                        text_mapper,
+                        allow_nearest=bool(allow_nearest),
+                        decode_strategy=decode_strategy,
+                        beam_width=beam_width,
+                        label_smoothing=label_smoothing,
+                        lexicon_decision=lexicon_decision,
+                    )
             else:
                 strategy = CrossEntropyStrategy()
 

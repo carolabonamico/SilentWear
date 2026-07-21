@@ -12,6 +12,12 @@ Summarize and visualize results from:
 - Global experiments
 - Inter-session experiments
 
+Supports both metric modes, auto-detected from the cv_summary.csv columns:
+- classification runs (accuracy / balanced_accuracy / confusion_matrix)
+- closed-set recognition runs (free-char CTC; wer / balanced_wer / cer / balanced_cer);
+  block-scatter plots show WER (sentences) or CER (words) instead of accuracy, and
+  confusion-matrix plots are skipped (predictions are reference/hypothesis strings).
+
 New artifacts layout (paper wrapper compatible):
   <ARTIFACTS_DIR>/models/<experiment>/<subject>/<condition>/<model_name>/<model_name_id>/model_<k>/
     - cv_summary.csv
@@ -218,6 +224,24 @@ def _read_label_mode_from_run_cfg(run_cfg_path: Path) -> str:
     return "word"
 
 
+# Metric columns written by compute_wer_metrics for closed-set recognition runs
+RECOGNITION_METRICS = ["wer", "balanced_wer", "cer", "balanced_cer"]
+
+
+def _detect_metrics_mode(df: pd.DataFrame) -> Optional[str]:
+    """Detect which task a cv_summary.csv belongs to from its metric columns.
+
+    Returns 'classification' (accuracy/confusion-matrix metrics), 'recognition'
+    (WER/CER metrics from the free-character CTC decoder), or None if neither
+    set of columns is present.
+    """
+    if "balanced_accuracy" in df.columns:
+        return "classification"
+    if "wer" in df.columns:
+        return "recognition"
+    return None
+
+
 def _make_cm_labels(n_classes: int, mode: str, label_mode: str = "text") -> list[str]:
     """Build tick labels for confusion matrix axes."""
     active_labels = get_active_labels(label_mode)
@@ -344,6 +368,7 @@ def main():
         print("=" * 90)
 
         rows = []
+        row_modes = []
         # Keep deterministic subject ordering
         for sub in args.subjects:
             rr = [r for r in run_list if r.subject == sub]
@@ -360,52 +385,111 @@ def main():
             r = rr[-1]
 
             df = pd.read_csv(r.cv_summary_csv)
-            bal_col = "balanced_accuracy"
-            bal_vals = df[bal_col].astype(float).to_numpy()
+            metrics_mode = _detect_metrics_mode(df)
+            if metrics_mode is None:
+                print(f"[WARN] {r.cv_summary_csv} has no known metric columns. Skipping {sub}.")
+                continue
 
-            rows.append(
-                {
-                    "subject": sub,
-                    "condition": cond,
-                    "model_name": args.model_name,
-                    "model_name_id": mid,
-                    "model_run": r.model_run,
-                    "run_path": str(r.run_path),
-                    "balanced_acc_mean": float(np.mean(bal_vals)),
-                    "balanced_acc_std": float(np.std(bal_vals)),
-                    "balanced_acc_vals": json.dumps(bal_vals.tolist()),
-                }
-            )
+            row = {
+                "subject": sub,
+                "condition": cond,
+                "model_name": args.model_name,
+                "model_name_id": mid,
+                "model_run": r.model_run,
+                "run_path": str(r.run_path),
+            }
+            if metrics_mode == "classification":
+                bal_vals = df["balanced_accuracy"].astype(float).to_numpy()
+                row.update(
+                    {
+                        "balanced_acc_mean": float(np.mean(bal_vals)),
+                        "balanced_acc_std": float(np.std(bal_vals)),
+                        "balanced_acc_vals": json.dumps(bal_vals.tolist()),
+                    }
+                )
+            else:
+                for col in [c for c in RECOGNITION_METRICS if c in df.columns]:
+                    vals = df[col].astype(float).to_numpy()
+                    row.update(
+                        {
+                            f"{col}_mean": float(np.mean(vals)),
+                            f"{col}_std": float(np.std(vals)),
+                            f"{col}_vals": json.dumps(vals.tolist()),
+                        }
+                    )
+            rows.append(row)
+            row_modes.append(metrics_mode)
 
         if len(rows) == 0:
             print(f"[WARN] No subjects found for {mid} / {cond}")
             continue
 
+        if len(set(row_modes)) > 1:
+            print(
+                f"[WARN] Mixed classification/recognition runs under {mid} / {cond}; "
+                f"keeping only '{row_modes[0]}' rows."
+            )
+            rows = [row for row, m in zip(rows, row_modes) if m == row_modes[0]]
+        group_mode = row_modes[0]
+
         summary_subjects = pd.DataFrame(rows)
 
-        # Pretty mean±std (%)
-        mean_std_fmt = []
-        for _, row in summary_subjects.iterrows():
-            vals = np.asarray(json.loads(row["balanced_acc_vals"]), dtype=float)
-            mean = np.round(np.mean(vals) * 100, 1)
-            std = np.round(np.std(vals) * 100, 1)
-            mean_std_fmt.append(f"{mean}±{std}")
-        summary_subjects["mean_std_perc"] = mean_std_fmt
+        if group_mode == "classification":
+            # Pretty mean±std (%)
+            mean_std_fmt = []
+            for _, row in summary_subjects.iterrows():
+                vals = np.asarray(json.loads(row["balanced_acc_vals"]), dtype=float)
+                mean = np.round(np.mean(vals) * 100, 1)
+                std = np.round(np.std(vals) * 100, 1)
+                mean_std_fmt.append(f"{mean}±{std}")
+            summary_subjects["mean_std_perc"] = mean_std_fmt
 
-        # Add All row (mean/std of per-subject means)
-        all_means = summary_subjects["balanced_acc_mean"].to_numpy(dtype=float)
-        all_row = {
-            "subject": "All",
-            "condition": cond,
-            "model_name": args.model_name,
-            "model_name_id": mid,
-            "model_run": model_run_tag,
-            "run_path": "",
-            "balanced_acc_mean": float(np.mean(all_means)),
-            "balanced_acc_std": float(np.std(all_means)),
-            "balanced_acc_vals": "",
-            "mean_std_perc": f"{np.round(np.mean(all_means)*100, 2)}±{np.round(np.std(all_means)*100, 2)}",
-        }
+            # Add All row (mean/std of per-subject means)
+            all_means = summary_subjects["balanced_acc_mean"].to_numpy(dtype=float)
+            all_row = {
+                "subject": "All",
+                "condition": cond,
+                "model_name": args.model_name,
+                "model_name_id": mid,
+                "model_run": model_run_tag,
+                "run_path": "",
+                "balanced_acc_mean": float(np.mean(all_means)),
+                "balanced_acc_std": float(np.std(all_means)),
+                "balanced_acc_vals": "",
+                "mean_std_perc": f"{np.round(np.mean(all_means)*100, 2)}±{np.round(np.std(all_means)*100, 2)}",
+            }
+            print_cols = ["subject", "model_run", "mean_std_perc"]
+        else:
+            # Recognition: pretty mean±std (%) per WER/CER metric
+            metric_cols = [c for c in RECOGNITION_METRICS if f"{c}_vals" in summary_subjects.columns]
+            for col in metric_cols:
+                mean_std_fmt = []
+                for _, row in summary_subjects.iterrows():
+                    vals = np.asarray(json.loads(row[f"{col}_vals"]), dtype=float)
+                    mean = np.round(np.mean(vals) * 100, 1)
+                    std = np.round(np.std(vals) * 100, 1)
+                    mean_std_fmt.append(f"{mean}±{std}")
+                summary_subjects[f"{col}_mean_std_perc"] = mean_std_fmt
+
+            # Add All row (mean/std of per-subject means)
+            all_row = {
+                "subject": "All",
+                "condition": cond,
+                "model_name": args.model_name,
+                "model_name_id": mid,
+                "model_run": model_run_tag,
+                "run_path": "",
+            }
+            for col in metric_cols:
+                all_means = summary_subjects[f"{col}_mean"].to_numpy(dtype=float)
+                all_row[f"{col}_mean"] = float(np.mean(all_means))
+                all_row[f"{col}_std"] = float(np.std(all_means))
+                all_row[f"{col}_vals"] = ""
+                all_row[f"{col}_mean_std_perc"] = (
+                    f"{np.round(np.mean(all_means)*100, 2)}±{np.round(np.std(all_means)*100, 2)}"
+                )
+            print_cols = ["subject", "model_run"] + [f"{c}_mean_std_perc" for c in metric_cols]
+
         summary_subjects = pd.concat([summary_subjects, pd.DataFrame([all_row])], ignore_index=True)
 
         # Save CSV
@@ -413,7 +497,7 @@ def main():
             tables_dir / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}.csv"
         )
         summary_subjects.to_csv(out_csv, index=False)
-        print(summary_subjects[["subject", "model_run", "mean_std_perc"]])
+        print(summary_subjects[print_cols].to_string(index=False))
         print(f"[SAVED] {out_csv}")
 
     # Combined session fold scatter block plot layout
@@ -431,11 +515,13 @@ def main():
                     if not run_list_cond:
                         continue
 
-                    series_bal: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {"Balanced Acc": {}}
-                    series_unbal: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {"Unbalanced Acc": {}}
+                    y1_by_sub: Dict[str, np.ndarray] = {}
+                    y2_by_sub: Dict[str, np.ndarray] = {}
                     max_folds = 0
                     valid_subjects = []
                     label_mode_detected = "word"
+                    group_mode: Optional[str] = None
+                    recog_metric_key = "wer"   # 'wer' (sentence) or 'cer' (word)
 
                     for sub in args.subjects:
                         rr = [r for r in run_list_cond if r.subject == sub]
@@ -444,22 +530,60 @@ def main():
                         r = sorted(rr, key=lambda x: (int(x.model_run.split("_")[-1]) if x.model_run.startswith("model_") else -1))[-1]
 
                         df = pd.read_csv(r.cv_summary_csv)
-                        if "balanced_accuracy" not in df.columns or "accuracy" not in df.columns:
+                        metrics_mode = _detect_metrics_mode(df)
+                        if metrics_mode == "classification":
+                            if "accuracy" not in df.columns:
+                                continue
+                            y1 = df["balanced_accuracy"].astype(float).to_numpy() * 100.0
+                            y2 = df["accuracy"].astype(float).to_numpy() * 100.0
+                        elif metrics_mode == "recognition":
+                            # WER degenerates to ~exact-match on single-word refs,
+                            # so plot CER for word-mode runs and WER for sentences.
+                            lm = _read_label_mode_from_run_cfg(r.run_cfg_json)
+                            recog_metric_key = "cer" if lm == "word" else "wer"
+                            bal_col, unbal_col = f"balanced_{recog_metric_key}", recog_metric_key
+                            if bal_col not in df.columns or unbal_col not in df.columns:
+                                continue
+                            y1 = df[bal_col].astype(float).to_numpy() * 100.0
+                            y2 = df[unbal_col].astype(float).to_numpy() * 100.0
+                        else:
+                            continue
+
+                        if group_mode is None:
+                            group_mode = metrics_mode
+                        elif metrics_mode != group_mode:
+                            print(f"[WARN] Mixed metric modes in block scatter for {mid} / {cond}; skipping {sub}.")
                             continue
 
                         label_mode_detected = _read_label_mode_from_run_cfg(r.run_cfg_json)
-                        bal_acc = df["balanced_accuracy"].astype(float).to_numpy() * 100.0
-                        unbal_acc = df["accuracy"].astype(float).to_numpy() * 100.0
 
-                        if len(bal_acc) > max_folds:
-                            max_folds = len(bal_acc)
+                        if len(y1) > max_folds:
+                            max_folds = len(y1)
 
-                        series_bal["Balanced Acc"][sub] = {"mean": bal_acc, "std": np.zeros_like(bal_acc)}
-                        series_unbal["Unbalanced Acc"][sub] = {"mean": unbal_acc, "std": np.zeros_like(unbal_acc)}
+                        y1_by_sub[sub] = y1
+                        y2_by_sub[sub] = y2
                         valid_subjects.append(sub)
 
                     if not valid_subjects:
                         continue
+
+                    if group_mode == "recognition":
+                        mlabel = recog_metric_key.upper()   # "WER" or "CER"
+                        s1_name, s2_name = f"Balanced {mlabel}", f"Unbalanced {mlabel}"
+                        y1_label, y2_label = f"Balanced {mlabel} (%)", f"Unbalanced {mlabel} (%)"
+                        max_val = max(float(np.max(v)) for d in (y1_by_sub, y2_by_sub) for v in d.values())
+                        y_max = max(100.0, math.ceil(max_val / 10.0) * 10.0)
+                    else:
+                        s1_name, s2_name = "Balanced Acc", "Unbalanced Acc"
+                        y1_label, y2_label = "Balanced Accuracy (%)", "Unbalanced Accuracy (%)"
+                        y_max = 100.0
+
+                    series_bal: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {
+                        s1_name: {sub: {"mean": v, "std": np.zeros_like(v)} for sub, v in y1_by_sub.items()}
+                    }
+                    series_unbal: Dict[str, Dict[str, Dict[str, np.ndarray]]] = {
+                        s2_name: {sub: {"mean": v, "std": np.zeros_like(v)} for sub, v in y2_by_sub.items()}
+                    }
 
                     # Dynamic figure instantiation
                     n_blocks = len(valid_subjects) + 1
@@ -467,14 +591,14 @@ def main():
                     ax2 = ax1.twinx()
                     x_values = np.arange(1, max_folds + 1)
 
-                    s1_styles = {"Balanced Acc": {"color": "blue", "marker": "o", "alpha": 0.95}}
-                    s2_styles = {"Unbalanced Acc": {"color": "red", "marker": "o", "alpha": 0.85}}
+                    s1_styles = {s1_name: {"color": "blue", "marker": "o", "alpha": 0.95}}
+                    s2_styles = {s2_name: {"color": "red", "marker": "o", "alpha": 0.85}}
 
                     build_twin_axis_blocks(
                         ax1=ax1, ax2=ax2, subjects=valid_subjects, x_values=x_values,
                         series1=series_bal, series2=series_unbal, series1_styles=s1_styles, series2_styles=s2_styles,
-                        with_average=True, x_label="Fold (Session)", y1_label="Balanced Accuracy (%)", y2_label="Unbalanced Accuracy (%)",
-                        y1_lim=(0, 100), y2_lim=(0, 100), y1_major_step=10, y2_major_step=10,
+                        with_average=True, x_label="Fold (Session)", y1_label=y1_label, y2_label=y2_label,
+                        y1_lim=(0, y_max), y2_lim=(0, y_max), y1_major_step=10, y2_major_step=10,
                         x_tick_labels=[str(x) for x in x_values], gap=1.0, block_margin=0.5,
                         label_y_offset=10.0, label_fontsize=10, label_position="bottom"
                     )
@@ -498,6 +622,16 @@ def main():
         for mid, runs_by_cond in sorted(by_mid.items()):
             target_conds = [c for c in args.conditions if c in runs_by_cond]
             nconds = len(target_conds)
+
+            # Recognition runs have no confusion matrix (predictions are strings)
+            probe_df = pd.read_csv(runs_by_cond[target_conds[0]][0].cv_summary_csv)
+            if "confusion_matrix" not in probe_df.columns:
+                print(
+                    f"[WARN] No confusion_matrix column for model_name_id={mid} "
+                    "(recognition run: WER/CER metrics, string predictions). "
+                    "Skipping confusion-matrix plot."
+                )
+                continue
 
             # Subjects that appear in at least one condition, in args order
             active_subj_set = {r.subject for rl in runs_by_cond.values() for r in rl}

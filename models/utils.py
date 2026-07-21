@@ -22,6 +22,7 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 from models.models_factory import ModelSpec, build_model_from_spec
+import numpy as np
 import torch
 import torch.nn as nn
 from utils.I_data_preparation.experimental_config import FS, get_active_labels, build_label_maps
@@ -68,6 +69,40 @@ def compute_metrics(y_true, y_pred):
     print(f"{ 'F1-score':<15}: MACRO      {f1_macro:6.2f}  - WEIGHTED {f1_weighted:6.2f}")
 
     # print(cm)
+
+    return metrics, y_true, y_pred
+
+
+def compute_wer_metrics(y_true, y_pred, verbose: bool = True):
+    """Compute recognition metrics (WER, CER) for the free-character CTC decoder."""
+    import jiwer
+
+    wer = float(jiwer.wer(y_true, y_pred))
+    cer = float(jiwer.cer(y_true, y_pred))
+
+    # Balanced variants: mean of per-class WER/CER, where each unique y_true
+    # text is a class, so over-represented classes do not dominate the score
+    # (mirrors balanced vs unbalanced accuracy in compute_metrics).
+    groups = {}
+    for ref, hyp in zip(y_true, y_pred):
+        groups.setdefault(ref, ([], []))
+        groups[ref][0].append(ref)
+        groups[ref][1].append(hyp)
+    balanced_wer = float(np.mean([jiwer.wer(refs, hyps) for refs, hyps in groups.values()]))
+    balanced_cer = float(np.mean([jiwer.cer(refs, hyps) for refs, hyps in groups.values()]))
+
+    metrics = {
+        "wer": wer,
+        "balanced_wer": balanced_wer,
+        "cer": cer,
+        "balanced_cer": balanced_cer,
+        "n_samples": int(len(y_true)),
+    }
+
+    if verbose:
+        print("\n=== Test Metrics (recognition) ===")
+        print(f"{'WER':<15}: UNBALANCED {wer:6.4f}  - BALANCED {balanced_wer:6.4f}")
+        print(f"{'CER':<15}: UNBALANCED {cer:6.4f}  - BALANCED {balanced_cer:6.4f}")
 
     return metrics, y_true, y_pred
 
@@ -126,10 +161,12 @@ def resolve_num_classes_from_cfg(
                 "For loss_name='ctc', provide model.kwargs.train_cfg.ctc.lexicon_path."
             )
 
+        use_full_alphabet = str(ctc_cfg.get("decoding", "lexicon")).lower() == "recognition"
         mapper = CTCTextMapper(
             lexicon_path=lexicon_path,
             train_label_map=train_label_map,
             blank_id=ctc_cfg.get("blank_id", DEFAULT_BLANK_ID),
+            use_full_alphabet=use_full_alphabet,
         )
         print("CTC token vocab size (without blank):", len(mapper.char_to_int))
         return len(mapper.char_to_int)

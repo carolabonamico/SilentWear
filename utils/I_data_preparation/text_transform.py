@@ -6,28 +6,36 @@ behavior (blank at index 0, character vocabulary derived from lexicon texts wher
 """
 
 from __future__ import annotations
-from typing import Iterable
+from typing import Iterable, Optional
 import jiwer
 from unidecode import unidecode
 
 
 _TEXT_NORMALIZER = jiwer.Compose([jiwer.RemovePunctuation(), jiwer.ToLowerCase()])
+ENGLISH_ALPHABET = list("abcdefghijklmnopqrstuvwxyz ")
 
 
 class CTCTextTransform:
     """Utility class for text transformation, handling character-level tokenization and cleaning."""
-    def __init__(self, vocab_texts: Iterable[str], blank_id: int = 0):
+    def __init__(
+        self,
+        vocab_texts: Iterable[str],
+        blank_id: int = 0,
+        alphabet: Optional[Iterable[str]] = None):
         self.blank_id = int(blank_id)
         self.transformation = _TEXT_NORMALIZER
 
-        seen = set()
-        chars = []
-        for text in vocab_texts:
-            clean_text = CTCTextTransform.clean_text(text)
-            for ch in clean_text:
-                if ch not in seen:
-                    seen.add(ch)
-                    chars.append(ch)
+        if alphabet is not None:
+            chars = list(dict.fromkeys(alphabet))
+        else:
+            seen = set()
+            chars = []
+            for text in vocab_texts:
+                clean_text = CTCTextTransform.clean_text(text)
+                for ch in clean_text:
+                    if ch not in seen:
+                        seen.add(ch)
+                        chars.append(ch)
 
         self.chars = chars
         self.char_to_int = {ch: idx + 1 for idx, ch in enumerate(self.chars)}

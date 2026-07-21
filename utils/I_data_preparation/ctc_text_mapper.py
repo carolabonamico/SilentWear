@@ -10,7 +10,7 @@ from typing import Dict, List, Tuple
 import editdistance
 import torch
 
-from utils.I_data_preparation.text_transform import CTCTextTransform
+from utils.I_data_preparation.text_transform import CTCTextTransform, ENGLISH_ALPHABET
 
 DEFAULT_BLANK_ID = 0
 
@@ -24,6 +24,7 @@ class CTCTextMapper(CTCTextTransform):
         lexicon_texts: List[str] | None = None,
         train_label_map: Dict[int, str] | None = None,
         blank_id: int = DEFAULT_BLANK_ID,
+        use_full_alphabet: bool = False,
     ):
         self.blank_id = int(blank_id)
         self.train_label_map = train_label_map or {}
@@ -72,7 +73,11 @@ class CTCTextMapper(CTCTextTransform):
         if not self.lexicon_texts:
             raise ValueError("CTC lexicon is empty after loading.")
 
-        super().__init__(vocab_texts=self.lexicon_texts, blank_id=self.blank_id)
+        super().__init__(
+            vocab_texts=self.lexicon_texts,
+            blank_id=self.blank_id,
+            alphabet=ENGLISH_ALPHABET if use_full_alphabet else None,
+        )
 
     def label_int_to_texts(self, labels: torch.Tensor) -> List[str]:
         """Convert label IDs to texts using label_to_text_map."""

@@ -12,15 +12,16 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 from models.seeds import *
-from models.utils import compute_metrics
-from typing import Dict, List, Optional, Tuple
+from models.utils import compute_metrics, compute_wer_metrics
+from typing import Dict, Optional, Tuple, Literal, cast
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
 import torch
 import hashlib
-from models.strategies import TaskStrategy
+from torch.optim.swa_utils import update_bn
+from models.strategies import TaskStrategy, CTCRecognitionStrategy
 
-EARLY_STOP_PATIENCE = 5  # default value if not specified in train_cfg
+DEFAULT_EARLY_STOP_PATIENCE = 5  # default value if not specified in train_cfg
 
 
 class TorchTrainer:
@@ -110,6 +111,12 @@ class TorchTrainer:
         save_path,
     ):
 
+        if trainloader is None or valoader is None:
+            raise ValueError(
+                "train_loop requires non-empty train and validation dataloaders "
+                "(got None). Check that df_train and df_val are not empty."
+            )
+
         if torch.cuda.is_available():
             device = torch.device("cuda")
             print("Running on cuda")
@@ -118,6 +125,8 @@ class TorchTrainer:
         else:
             device = torch.device("cpu")
             print("Running on CPU")
+
+        model.to(device)
 
         # ---- Read config ----
         num_epochs = int(train_cfg.get("num_epochs", 50))
@@ -136,7 +145,7 @@ class TorchTrainer:
         # betas = optimizer_cfg.get("betas", (0.9, 0.999))
 
         print("Model will be trained for:", num_epochs, "epochs")
-        early_stop_patience = train_cfg.get("early_stop_patience", EARLY_STOP_PATIENCE)
+        early_stop_patience = train_cfg.get("early_stop_patience", DEFAULT_EARLY_STOP_PATIENCE)
         print("Early stop patienence set to:", early_stop_patience)
         print("Set optimizer", opt_name, "|lr:", lr, "|wd:", weight_decay)
         scheduler_cfg = train_cfg.get("scheduler", None)
@@ -182,7 +191,7 @@ class TorchTrainer:
                 x = x.to(device)
                 y = y.to(device).long()
                 out = model(x)
-                preds = self.strategy.predict_labels(out)
+                preds = self.strategy.predict_labels(out, use_score_fallback=False)
                 # ensure list-like for extend
                 train_preds.extend(preds.tolist() if hasattr(preds, "tolist") else list(preds))
                 train_tgts.extend(y.cpu().numpy().tolist())
@@ -194,7 +203,7 @@ class TorchTrainer:
                 x = x.to(device)
                 y = y.to(device).long()
                 out = model(x)
-                preds = self.strategy.predict_labels(out)
+                preds = self.strategy.predict_labels(out, use_score_fallback=False)
                 val_preds.extend(preds.tolist() if hasattr(preds, "tolist") else list(preds))
                 val_tgts.extend(y.cpu().numpy().tolist())
             val_acc_0 = np.mean(np.array(val_preds) == np.array(val_tgts))
@@ -202,14 +211,26 @@ class TorchTrainer:
         print(f"PRE-TRAIN | TRAIN ACC: {train_acc_0:.3f} | VAL ACC: {val_acc_0:.3f}")
 
         # -------- Real Training Starts --------
+        # For the recognition path the reported quality metric is WER/CER. 
+        # Val WER/CER are tracked at every epoch and the checkpoint is on the
+        # primary metric (CER for word-mode, WER for sentence-mode), while the
+        # scheduler and early-stopping follow the val loss.
+        recog_strategy = (
+            self.strategy if isinstance(self.strategy, CTCRecognitionStrategy) else None
+        )
+        monitor_name = (
+            recog_strategy.primary_metric.upper() if recog_strategy is not None else "loss"
+        )
+
         train_losses = []
         val_losses = []
-        best_val_loss = float("inf")
+        val_monitors = []          # per-epoch selection metric (WER/CER or loss)
+        best_val_loss = float("inf")  # early-stopping signal (loss)
+        best_monitor = float("inf")   # checkpoint-selection signal
         best_state = None
 
         patience = 0
 
-        model.to(device)
         train_accs = []
         val_accs = []
         for epoch in range(num_epochs):
@@ -239,7 +260,7 @@ class TorchTrainer:
 
                 running_loss_train += loss.item()
                 train_batches += 1
-                preds = self.strategy.predict_labels(outputs)
+                preds = self.strategy.predict_labels(outputs, use_score_fallback=False)
                 train_predictions.extend(preds.tolist() if hasattr(preds, "tolist") else list(preds))
                 train_targets.extend(y.cpu().numpy().tolist())
             train_accuracy = np.mean(np.array(train_predictions) == np.array(train_targets))
@@ -252,6 +273,7 @@ class TorchTrainer:
             val_batches = 0
             val_predictions = []
             val_targets = []
+            val_refs, val_hyps = [], []
 
             with torch.no_grad():
                 for x, y in valoader:
@@ -264,15 +286,31 @@ class TorchTrainer:
                     running_loss_val += loss.item()
                     val_batches += 1
 
-                    # Collect predictions and targets for later analysis
-                    preds = self.strategy.predict_labels(outputs)
-                    val_predictions.extend(preds.tolist() if hasattr(preds, "tolist") else list(preds))
-                    val_targets.extend(y.cpu().numpy().tolist())
-            # compute accuracy on the validation set
-            val_accuracy = np.mean(np.array(val_predictions) == np.array(val_targets))
-            val_accs.append(val_accuracy)
+                    if recog_strategy is not None:
+                        val_hyps.extend(recog_strategy.predict_texts(outputs, force_greedy=True))
+                        val_refs.extend(recog_strategy.reference_texts(y))
+                    else:
+                        preds = self.strategy.predict_labels(outputs)
+                        val_predictions.extend(preds.tolist() if hasattr(preds, "tolist") else list(preds))
+                        val_targets.extend(y.cpu().numpy().tolist())
 
             avg_val_loss = running_loss_val / max(1, val_batches)
+
+            # ----- Selection metric: WER/CER for recognition, else val loss -----
+            if recog_strategy is not None:
+                val_metrics, _, _ = compute_wer_metrics(val_refs, val_hyps, verbose=False)
+                monitor = float(val_metrics[recog_strategy.primary_metric])
+                val_accuracy = float(np.mean([r == h for r, h in zip(val_refs, val_hyps)])) if val_refs else 0.0
+                metric_str = (
+                    f"VAL WER: {val_metrics['wer']:.3f} | VAL CER: {val_metrics['cer']:.3f} "
+                    f"| SEL[{monitor_name}]: {monitor:.3f}"
+                )
+            else:
+                monitor = float(avg_val_loss)
+                val_accuracy = float(np.mean(np.array(val_predictions) == np.array(val_targets)))
+                metric_str = f"TRAIN ACC: {train_accuracy:.3f} | VAL ACC: {val_accuracy:.3f}"
+            val_accs.append(val_accuracy)
+            val_monitors.append(monitor)
 
             # ----- Scheduler step (safe fallback) -----
             current_lr = optimizer.param_groups[0]["lr"]
@@ -284,15 +322,15 @@ class TorchTrainer:
                     scheduler.step()
 
             if scheduler is not None and isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                print(f"{epoch} TRAIN loss: {avg_train_loss:.3f} | VAL loss: {avg_val_loss:.3f} | TRAIN ACC: {train_accuracy:.3f} | VAL ACC: {val_accuracy:.3f} | LR: {current_lr:.2e}")
+                print(f"{epoch} TRAIN loss: {avg_train_loss:.3f} | VAL loss: {avg_val_loss:.3f} | {metric_str} | LR: {current_lr:.2e}")
             else:
-                print(f"{epoch} TRAIN loss: {avg_train_loss:.3f} | VAL loss: {avg_val_loss:.3f} | TRAIN ACC: {train_accuracy:.3f} | VAL ACC: {val_accuracy:.3f}")
+                print(f"{epoch} TRAIN loss: {avg_train_loss:.3f} | VAL loss: {avg_val_loss:.3f} | {metric_str}")
             train_losses.append(avg_train_loss)
             val_losses.append(avg_val_loss)
 
-            # Early stopping bookkeeping (UNCHANGED)
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
+            # Checkpoint selection on the monitor (primary WER/CER, or val loss).
+            if monitor < best_monitor:
+                best_monitor = monitor
                 best_state = {
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
@@ -301,6 +339,10 @@ class TorchTrainer:
                     "optimizer_cfg": optimizer_cfg,
                     "scheduler_cfg": scheduler_cfg,
                 }
+
+            # Early-stopping on the val loss, independent of selection.
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
                 patience = 0
             else:
                 patience += 1
@@ -320,9 +362,12 @@ class TorchTrainer:
                     "val_loss": val_losses,
                     "train_acc": train_accs,
                     "val_acc": val_accs,
+                    "val_monitor": val_monitors,
+                    "monitor_name": monitor_name,
+                    "best_monitor": float(best_monitor),
                     "best_val_loss": best_val_loss,
                     "requested_num_epochs": int(num_epochs),
-                    "epochs_ran": int(epochs_ran) if epochs_ran is not None else 0,
+                    "epochs_ran": int(epochs_ran),
                     "best_epoch": int(best_epoch_1based) if best_epoch_1based is not None else 0,
                     "early_stop_patience": int(early_stop_patience),
                 }
@@ -340,9 +385,11 @@ class TorchTrainer:
         Train Pytorch model on features X and labels y.
         """
 
-        self.train_loader = self.create_dataloader_from_df(self.df_train)
-        self.valoader = self.create_dataloader_from_df(self.df_val)
-        self.test_loader = self.create_dataloader_from_df(self.df_test)
+        batch_size = int((self.train_cfg or {}).get("batch_size", 32))
+
+        self.train_loader = self.create_dataloader_from_df(self.df_train, batch_size=batch_size)
+        self.valoader = self.create_dataloader_from_df(self.df_val, batch_size=batch_size)
+        self.test_loader = self.create_dataloader_from_df(self.df_test, batch_size=batch_size)
         # Check that splits are truly different
         self.check_data_splits()
 
@@ -474,9 +521,24 @@ def evaluate_model(
     device = next(model.parameters()).device
     model.eval()
 
+    # Free-character recognition path: decode to collapsed character text and
+    # score with WER/CER (instead of accuracy/precision/recall/F1).
+    if isinstance(strategy, CTCRecognitionStrategy):
+        references, hypotheses = [], []
+        with torch.no_grad():
+            for inputs, targets in test_loader:
+                inputs = inputs.to(device)
+                targets = targets.to(device).long()
+                outputs = model(inputs)
+                hypotheses.extend(strategy.predict_texts(outputs))
+                references.extend(strategy.reference_texts(targets))
+        if not references:
+            return None, None, None
+        metrics, refs, hyps = compute_wer_metrics(references, hypotheses)
+        return metrics, np.asarray(refs), np.asarray(hyps)
+
     all_targets = []
     all_preds = []
-    all_logits = []
 
     with torch.no_grad():
         for inputs, targets in test_loader:
@@ -500,11 +562,6 @@ def evaluate_model(
 
             all_preds.append(batch_preds)
             all_targets.append(targets.cpu().numpy())
-            try:
-                all_logits.append(outputs.cpu().numpy())
-            except Exception:
-                # outputs may be a tuple/list; ignore logits if not convertible
-                pass
 
     # Concatenate batches along first axis
     if len(all_targets) == 0:
