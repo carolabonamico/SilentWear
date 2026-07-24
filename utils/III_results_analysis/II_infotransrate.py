@@ -196,8 +196,8 @@ def _plot_subjects_plus_average_single_box(
         itr_mean=("itr_mean", "mean"),
     ).reset_index()
 
-    acc_std_across = g["acc_mean"].apply(lambda v: np.std(v.values)).reset_index(name="acc_std")
-    itr_std_across = g["itr_mean"].apply(lambda v: np.std(v.values)).reset_index(name="itr_std")
+    acc_std_across = g["acc_mean"].apply(lambda v: np.std(v.to_numpy(dtype=float, copy=False))).reset_index(name="acc_std")
+    itr_std_across = g["itr_mean"].apply(lambda v: np.std(v.to_numpy(dtype=float, copy=False))).reset_index(name="itr_std")
     agg = agg.merge(acc_std_across, on="win_size_ms").merge(itr_std_across, on="win_size_ms")
     agg = agg.set_index("win_size_ms").reindex(windows_ms).reset_index()
 
@@ -308,8 +308,8 @@ def _plot_subjects_plus_average_single_box(
     ax.tick_params(axis="y", which="both", colors="blue")
     ax.spines["left"].set_color("blue")
 
-    # ITR axis scale: auto based on data (safer than hardcoding 200)
-    itr_max = float(np.nanmax(df_condition["itr_mean"].to_numpy()))
+    # ITR axis scale: auto based on data
+    # itr_max = float(np.nanmax(df_condition["itr_mean"].to_numpy()))
     # itr_ylim = max(50.0, np.ceil((itr_max + 10.0) / 25.0) * 25.0)
     ax2.set_ylim(0, 200)
     ax2.yaxis.set_major_locator(MultipleLocator(25))
@@ -440,7 +440,7 @@ def main():
 
         T_sec = win_ms / 1000.0
         itrs = np.array(
-            [_compute_itr(M=args.num_classes, T=T_sec, P=p) for p in bal_vals], dtype=float
+            [_compute_itr(M=args.num_classes, T=T_sec, P=float(p)) for p in bal_vals], dtype=float
         )
 
         records.append(
@@ -488,7 +488,6 @@ def main():
             title=f"{args.model_name} | {cond}",
             save_path=out_fig,
         )
-        print(f"[SAVED] {out_fig}")
 
         # Print max stats (average across subjects)
         unique_windows = windows_ms
@@ -516,6 +515,7 @@ def main():
         print(f"Accuracy at best ITR:      {acc_at_best_itr:.2f}%")
         reduction = (((best_acc - acc_at_best_itr) / best_acc)) * 100
         print(f"Accuracy reduction:        {reduction:.2f}%")
+        print(f"[SAVED] {out_fig}")
 
 
 if __name__ == "__main__":
