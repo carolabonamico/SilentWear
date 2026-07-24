@@ -157,6 +157,42 @@ def count_flops(model: nn.Module, example_input: torch.Tensor) -> Optional[int]:
             model.train()
 
 
+def conv_input_shape(model: nn.Module, example_input: torch.Tensor) -> Optional[Tuple[int, ...]]:
+    """Shape of the tensor that actually enters the first convolution.
+
+    Returns the shape tuple, or ``None`` if there is no conv or the pass fails
+    (profiling must never break a run).
+    """
+    conv = next(
+        (m for m in model.modules() if isinstance(m, (nn.Conv1d, nn.Conv2d, nn.Conv3d))),
+        None,
+    )
+    if conv is None:
+        return None
+
+    captured: dict = {}
+
+    def _hook(_module, inputs):
+        if inputs and hasattr(inputs[0], "shape"):
+            captured["shape"] = tuple(inputs[0].shape)
+
+    handle = conv.register_forward_pre_hook(_hook)
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            model(example_input)
+    except Exception as exc:
+        print(f"[Conv input shape] skipped ({type(exc).__name__}: {exc}).")
+        return None
+    finally:
+        handle.remove()
+        if was_training:
+            model.train()
+
+    return captured.get("shape")
+
+
 def check_weights_updated(before_state_dict: dict, model_after: nn.Module) -> bool:
     """
     Returns True if at least one parameter tensor differs after loading.
@@ -316,6 +352,16 @@ def save_model_architecture_to_csv(
             "Layer_Type": "Input_Shape",
             "Parameters_Count": str(input_shape)
         })
+        conv_in_shape = conv_input_shape(model, example_input)
+        if conv_in_shape is not None:
+            domain = getattr(model, "domain", "time")
+            print(f"[Conv input] {model_name}: {conv_in_shape} entering the conv stack "
+                  f"(domain='{domain}', from model input {input_shape})")
+            rows.append({
+                "Layer_Name": "GLOBAL_SUMMARY",
+                "Layer_Type": "Conv_Input_Shape",
+                "Parameters_Count": str(conv_in_shape)
+            })
         flops = count_flops(model, example_input)
         if flops is not None:
             print(f"[FLOPs] {model_name}: {flops:,} FLOPs/sample ({flops / 1e6:.1f} MFLOPs) "

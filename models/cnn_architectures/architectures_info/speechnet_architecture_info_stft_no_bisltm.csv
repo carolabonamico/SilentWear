@@ -1,6 +1,9 @@
 Layer_Name,Layer_Type,Parameters_Count
 GLOBAL_SUMMARY,Total_Parameters,246768
 GLOBAL_SUMMARY,Trainable_Parameters,246768
+GLOBAL_SUMMARY,Input_Shape,"(1, 14, 1000)"
+GLOBAL_SUMMARY,Conv_Input_Shape,"(1, 14, 33, 201)"
+GLOBAL_SUMMARY,Forward_FLOPs_per_sample,230439808
 transform,Spectrogram,0
 freq_mask,FrequencyMasking,0
 time_mask,TimeMasking,0

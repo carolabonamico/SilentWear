@@ -1,6 +1,9 @@
 Layer_Name,Layer_Type,Parameters_Count
 GLOBAL_SUMMARY,Total_Parameters,247413
 GLOBAL_SUMMARY,Trainable_Parameters,247413
+GLOBAL_SUMMARY,Input_Shape,"(1, 14, 1000)"
+GLOBAL_SUMMARY,Conv_Input_Shape,"(1, 14, 40, 201)"
+GLOBAL_SUMMARY,Forward_FLOPs_per_sample,275453952
 transform.amplitude_to_DB,AmplitudeToDB,0
 transform.MelSpectrogram.spectrogram,Spectrogram,0
 transform.MelSpectrogram.mel_scale,MelScale,0
