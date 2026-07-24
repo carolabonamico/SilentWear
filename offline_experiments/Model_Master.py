@@ -387,6 +387,9 @@ class Model_Master:
                 decoding = str(ctc_cfg.get("decoding", "lexicon")).lower()
                 decode_strategy = str(ctc_cfg.get("decode_strategy", "greedy")).lower()
                 beam_width = int(ctc_cfg.get("beam_width", 10))
+                beam_temperature = float(ctc_cfg.get("beam_temperature", 1.0))
+                beam_blank_penalty = float(ctc_cfg.get("beam_blank_penalty", 0.0))
+                beam_length_bonus = float(ctc_cfg.get("beam_length_bonus", 0.0))
                 label_smoothing = float(ctc_cfg.get("label_smoothing", 0.0))
                 if decoding == "recognition":
                     # Free-character CTC: decode collapsed strings (greedy or
@@ -395,6 +398,9 @@ class Model_Master:
                         text_mapper,
                         decode_strategy=decode_strategy,
                         beam_width=beam_width,
+                        beam_temperature=beam_temperature,
+                        beam_blank_penalty=beam_blank_penalty,
+                        beam_length_bonus=beam_length_bonus,
                         label_mode=self.label_mode,
                         label_smoothing=label_smoothing,
                     )
@@ -408,6 +414,9 @@ class Model_Master:
                         allow_nearest=bool(allow_nearest),
                         decode_strategy=decode_strategy,
                         beam_width=beam_width,
+                        beam_temperature=beam_temperature,
+                        beam_blank_penalty=beam_blank_penalty,
+                        beam_length_bonus=beam_length_bonus,
                         label_smoothing=label_smoothing,
                         lexicon_decision=lexicon_decision,
                     )
@@ -428,7 +437,10 @@ class Model_Master:
         print("Model and Trainer Initialized!")
 
         if self.kind == "dl":
-            save_model_architecture_to_csv(self.model, model_name)
+            example_input = torch.zeros(
+                1, ctx["num_channels"], ctx["num_samples"], device=self.device
+            )
+            save_model_architecture_to_csv(self.model, model_name, example_input=example_input)
             
     def train_model(self, save_model_path: Optional[Path] = None, test: bool = True):
         """
@@ -452,7 +464,52 @@ class Model_Master:
                     print(f"Failed to plot loss curves: {e}")
 
         if test:
-            metrics, y_true, y_pred = self.trainer_manager.evaluate()
+            eval_kwargs = {}
+            dump_path = self._ctc_logprob_dump_path(save_model_path)
+            pred_txt_path = self._ctc_pred_txt_path(save_model_path)
+            
+            if dump_path is not None:
+                eval_kwargs["dump_path"] = dump_path
+            if pred_txt_path is not None:
+                eval_kwargs["pred_txt_path"] = pred_txt_path
+            
+            metrics, y_true, y_pred = self.trainer_manager.evaluate(**eval_kwargs)
+            
             return self.model, metrics, y_true, y_pred
 
         return self.model, None, None, None
+
+    def _ctc_pred_txt_path(self, save_model_path: Optional[Path]) -> Optional[Path]:
+        """Return the .txt path for the per-sample prediction dump, or None.
+
+        Always on for DL + CTC runs but can be disabled with
+        ``model.kwargs.train_cfg.ctc.dump_predictions: false``.
+        """
+        if self.kind != "dl" or save_model_path is None:
+            return None
+        train_cfg = self.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {})
+        if str(train_cfg.get("loss_name", "")).lower().strip() != "ctc":
+            return None
+        ctc_cfg = train_cfg.get("ctc", {})
+        if not bool(ctc_cfg.get("dump_predictions", True)):
+            return None
+        save_model_path = Path(save_model_path)
+        return save_model_path.with_name(save_model_path.stem + "_predictions.txt")
+
+    def _ctc_logprob_dump_path(self, save_model_path: Optional[Path]) -> Optional[Path]:
+        """Return the .npz path to dump test log-probs to, or None if disabled.
+
+        Enabled by ``model.kwargs.train_cfg.ctc.dump_logprobs: true`` in the model
+        config (DL + CTC only). The dump sits next to the fold checkpoint so
+        VII_beam_sweep.py can pick it up and sweep decode parameters offline.
+        """
+        if self.kind != "dl" or save_model_path is None:
+            return None
+        train_cfg = self.model_config.get("model", {}).get("kwargs", {}).get("train_cfg", {})
+        if str(train_cfg.get("loss_name", "")).lower().strip() != "ctc":
+            return None
+        ctc_cfg = train_cfg.get("ctc", {})
+        if not bool(ctc_cfg.get("dump_logprobs", False)):
+            return None
+        save_model_path = Path(save_model_path)
+        return save_model_path.with_name(save_model_path.stem + "_logprobs.npz")

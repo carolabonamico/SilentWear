@@ -220,6 +220,71 @@ def _run_one_subject_condition(
     raise ValueError(f"Unknown experiment: {experiment}")
 
 
+def run_all_subjects(
+    experiment: str,
+    base_cfg: dict,
+    model_cfg: dict,
+    subjects: List[str],
+    cond: str,
+    ft_cfg: Optional[dict],
+    tfs_cfg: Optional[dict],
+) -> None:
+    """
+    Run an experiment pooling all specified subjects together into a single dataset.
+    Passing a Python list as subject_id sets all_subjects_models = True inside the trainers.
+    """
+    cfg_run = deepcopy(base_cfg)
+    cfg_run["data"]["subject_id"] = subjects
+    cfg_run["condition"] = cond
+
+    window_ms = window_ms_from_cfg(cfg_run)
+    model_name_id = f"w{window_ms}ms"
+    cfg_run = _set_model_name_id_everywhere(cfg_run, model_name_id)
+
+    if experiment == "global":
+        print(f"\n=== GLOBAL | all_subjects (pooled) | {cond} | {model_name_id} ===")
+        trainer = Global_Model_Trainer(base_config=cfg_run, model_config=model_cfg)
+        if hasattr(trainer, "main"):
+            trainer.main()
+        return
+
+    if experiment == "inter_session":
+        print(f"\n=== INTER-SESSION | all_subjects (pooled) | {cond} | {model_name_id} ===")
+        trainer = Inter_Session_Model_Trainer(
+            base_config=cfg_run, model_config=model_cfg, experiment_subdir="inter_session"
+        )
+        if hasattr(trainer, "main"):
+            trainer.main()
+        return
+
+    if experiment == "inter_session_ft":
+        if ft_cfg is None:
+            raise ValueError("inter_session_ft requested but ft_cfg is None")
+        ft_cfg_local = deepcopy(ft_cfg)
+        ft_cfg_local["model_name_id"] = model_name_id
+        print(f"\n=== INTER-SESSION + FT | all_subjects (pooled) | {cond} | {model_name_id} ===")
+        trainer = FineTuning_Model_Trainer(
+            base_config=cfg_run, model_config=model_cfg, ft_cfg=ft_cfg_local
+        )
+        if hasattr(trainer, "main"):
+            trainer.main()
+        return
+
+    if experiment == "train_from_scratch":
+        if tfs_cfg is None:
+            raise ValueError("train_from_scratch requested but tfs_cfg is None")
+        tfs_cfg_local = deepcopy(tfs_cfg)
+        tfs_cfg_local["model_name_id"] = model_name_id
+        print(f"\n=== TRAIN-FROM-SCRATCH | all_subjects (pooled) | {cond} | {model_name_id} ===")
+        trainer = TrainFromScratch_Model_Trainer(
+            base_config=cfg_run, model_config=model_cfg, tfs_cfg=tfs_cfg_local
+        )
+        trainer.main()
+        return
+
+    raise ValueError(f"Experiment '{experiment}' does not support pooled mode via run_all_subjects.")
+
+
 def main():
     ap = argparse.ArgumentParser()
 
@@ -241,6 +306,13 @@ def main():
 
     ap.add_argument("--subjects", nargs="+", default=DEFAULT_SUBJECTS)
     ap.add_argument("--conditions", nargs="+", default=DEFAULT_CONDITIONS)
+
+    # Flag for running pooled models across all subjects
+    ap.add_argument(
+        "--pool_subjects",
+        action="store_true",
+        help="Pool all specified subjects together into a single dataset (all_subjects mode).",
+    )
 
     # Inter-session ablation controls
     ap.add_argument(
@@ -420,52 +492,77 @@ def main():
                                 )
 
     if "global" in args.experiment:
-        for sub in args.subjects:
+        if args.pool_subjects:
             for cond in args.conditions:
-                _run_one_subject_condition("global", base_cfg, model_cfg, sub, cond, {}, {})
+                run_all_subjects("global", base_cfg, model_cfg, args.subjects, cond, None, None)
+        else:
+            for sub in args.subjects:
+                for cond in args.conditions:
+                    _run_one_subject_condition("global", base_cfg, model_cfg, sub, cond, {}, {})
 
     if "inter_session" in args.experiment:
         for w_s in inter_session_windows:
-            for sub in args.subjects:
+            if args.pool_subjects:
                 for cond in args.conditions:
-                    sessions = discover_sessions(args.data_dir, sub, cond)
-                    if len(sessions) < 2:
-                        print(f"[SKIP] inter_session requires >=2 sessions. Found {len(sessions)} for {sub} {cond}.")
-                        continue
-
                     base_cfg_w = deepcopy(base_cfg)
                     base_cfg_w.setdefault("window", {})
                     base_cfg_w["window"]["window_size_s"] = float(w_s)
-                    _run_one_subject_condition(
-                        "inter_session", base_cfg_w, model_cfg, sub, cond, {}, {}
-                    )
+                    run_all_subjects("inter_session", base_cfg_w, model_cfg, args.subjects, cond, None, None)
+            else:
+                for sub in args.subjects:
+                    for cond in args.conditions:
+                        sessions = discover_sessions(args.data_dir, sub, cond)
+                        if len(sessions) < 2:
+                            print(f"[SKIP] inter_session requires >=2 sessions. Found {len(sessions)} for {sub} {cond}.")
+                            continue
+
+                        base_cfg_w = deepcopy(base_cfg)
+                        base_cfg_w.setdefault("window", {})
+                        base_cfg_w["window"]["window_size_s"] = float(w_s)
+                        _run_one_subject_condition(
+                            "inter_session", base_cfg_w, model_cfg, sub, cond, {}, {}
+                        )
 
     if "train_from_scratch" in args.experiment:
-        for sub in args.subjects:
-            for cond in args.conditions:
-                for w_s in args.tfs_windows_s:
+        for w_s in args.tfs_windows_s:
+            if args.pool_subjects:
+                for cond in args.conditions:
                     base_cfg_w = deepcopy(base_cfg)
                     base_cfg_w.setdefault("window", {})
                     base_cfg_w["window"]["window_size_s"] = float(w_s)
-                    _run_one_subject_condition(
-                        "train_from_scratch", base_cfg_w, model_cfg, sub, cond, None, tfs_cfg
-                    )
+                    run_all_subjects("train_from_scratch", base_cfg_w, model_cfg, args.subjects, cond, None, tfs_cfg)
+            else:
+                for sub in args.subjects:
+                    for cond in args.conditions:
+                        base_cfg_w = deepcopy(base_cfg)
+                        base_cfg_w.setdefault("window", {})
+                        base_cfg_w["window"]["window_size_s"] = float(w_s)
+                        _run_one_subject_condition(
+                            "train_from_scratch", base_cfg_w, model_cfg, sub, cond, None, tfs_cfg
+                        )
 
     if "inter_session_ft" in args.experiment:
-        for sub in args.subjects:
-            for cond in args.conditions:
-                sessions = discover_sessions(args.data_dir, sub, cond)
-                if len(sessions) < 2:
-                    print(f"[SKIP] inter_session_ft requires >=2 sessions. Found {len(sessions)} for {sub} {cond}.")
-                    continue
-
-                for w_s in args.ft_windows_s:
+        for w_s in args.ft_windows_s:
+            if args.pool_subjects:
+                for cond in args.conditions:
                     base_cfg_w = deepcopy(base_cfg)
                     base_cfg_w.setdefault("window", {})
                     base_cfg_w["window"]["window_size_s"] = float(w_s)
-                    _run_one_subject_condition(
-                        "inter_session_ft", base_cfg_w, model_cfg, sub, cond, ft_cfg, None
-                    )
+                    run_all_subjects("inter_session_ft", base_cfg_w, model_cfg, args.subjects, cond, ft_cfg, None)
+            else:
+                for sub in args.subjects:
+                    for cond in args.conditions:
+                        sessions = discover_sessions(args.data_dir, sub, cond)
+                        if len(sessions) < 2:
+                            print(f"[SKIP] inter_session_ft requires >=2 sessions. Found {len(sessions)} for {sub} {cond}.")
+                            continue
+
+                        base_cfg_w = deepcopy(base_cfg)
+                        base_cfg_w.setdefault("window", {})
+                        base_cfg_w["window"]["window_size_s"] = float(w_s)
+                        _run_one_subject_condition(
+                            "inter_session_ft", base_cfg_w, model_cfg, sub, cond, ft_cfg, None
+                        )
 
 if __name__ == "__main__":
     main()

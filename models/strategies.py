@@ -82,6 +82,9 @@ class CTCStrategy(TaskStrategy):
         allow_nearest: bool = True,
         decode_strategy: str = "greedy",
         beam_width: int = 10,
+        beam_temperature: float = 1.0,
+        beam_blank_penalty: float = 0.0,
+        beam_length_bonus: float = 0.0,
         label_smoothing: float = 0.0,
         lexicon_decision: str = "nearest",
     ):
@@ -94,6 +97,9 @@ class CTCStrategy(TaskStrategy):
                 f"decode_strategy must be 'greedy' or 'beam', got '{decode_strategy}'."
             )
         self.beam_width = int(beam_width)
+        self.beam_temperature = float(beam_temperature)
+        self.beam_blank_penalty = float(beam_blank_penalty)
+        self.beam_length_bonus = float(beam_length_bonus)
         self.lexicon_decision = str(lexicon_decision).lower().strip()
         if self.lexicon_decision not in ("nearest", "score"):
             raise ValueError(
@@ -228,7 +234,14 @@ class CTCStrategy(TaskStrategy):
         blank_id = self.text_mapper.blank_id
         texts: List[str] = []
         for seq in log_probs:
-            ids = ctc_prefix_beam_search(seq.tolist(), self.beam_width, blank_id)
+            ids = ctc_prefix_beam_search(
+                seq.tolist(),
+                self.beam_width,
+                blank_id,
+                temperature=self.beam_temperature,
+                blank_penalty=self.beam_blank_penalty,
+                length_bonus=self.beam_length_bonus,
+            )
             texts.append(self.text_mapper.clean_text(self.text_mapper.int_to_text(ids)))
         return texts
 
@@ -282,6 +295,9 @@ class CTCRecognitionStrategy(CTCStrategy):
         text_mapper,
         decode_strategy: str = "greedy",
         beam_width: int = 10,
+        beam_temperature: float = 1.0,
+        beam_blank_penalty: float = 0.0,
+        beam_length_bonus: float = 0.0,
         label_mode: str = "sentence",
         label_smoothing: float = 0.0,
     ):
@@ -290,6 +306,9 @@ class CTCRecognitionStrategy(CTCStrategy):
             allow_nearest=False,
             decode_strategy=decode_strategy,
             beam_width=beam_width,
+            beam_temperature=beam_temperature,
+            beam_blank_penalty=beam_blank_penalty,
+            beam_length_bonus=beam_length_bonus,
             label_smoothing=label_smoothing,
         )
         self.label_mode = str(label_mode).lower().strip()

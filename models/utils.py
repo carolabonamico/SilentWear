@@ -113,6 +113,50 @@ def count_params(model: nn.Module) -> Tuple[int, int]:
     return total, trainable
 
 
+def count_flops(model: nn.Module, example_input: torch.Tensor) -> Optional[int]:
+    """Total FLOPs of one forward pass on ``example_input``.
+
+    Uses PyTorch's native ``torch.utils.flop_counter.FlopCounterMode`` (no extra
+    dependency). A multiply-add is counted as 2 FLOPs (~2x the MAC count) for every 
+    op that has a flop formula: conv, linear/matmul and scaled-dot-product attention.
+
+    Returns the total FLOPs (int) or ``None`` if counting is unavailable/fails, so
+    it can never break a training run.
+    """
+    try:
+        from torch.utils.flop_counter import FlopCounterMode
+    except Exception:
+        return None
+
+    was_training = model.training
+    model.eval()
+    # Disable the multihead-attention fast path so the Transformer encoder's
+    # matmuls are visible to the counter; restored in `finally`.
+    fastpath = None
+    try:
+        fastpath = torch.backends.mha.get_fastpath_enabled()
+        torch.backends.mha.set_fastpath_enabled(False)
+    except Exception:
+        fastpath = None
+
+    try:
+        flop_counter = FlopCounterMode(display=False)
+        with flop_counter, torch.no_grad():
+            model(example_input)
+        return int(flop_counter.get_total_flops())
+    except Exception as exc:  # pragma: no cover - never break a run over profiling
+        print(f"[FLOPs] counting skipped ({type(exc).__name__}: {exc}).")
+        return None
+    finally:
+        if fastpath is not None:
+            try:
+                torch.backends.mha.set_fastpath_enabled(fastpath)
+            except Exception:
+                pass
+        if was_training:
+            model.train()
+
+
 def check_weights_updated(before_state_dict: dict, model_after: nn.Module) -> bool:
     """
     Returns True if at least one parameter tensor differs after loading.
@@ -236,7 +280,9 @@ def load_pretrained_model(
         return None
     
 
-def save_model_architecture_to_csv(model: nn.Module, model_name: str) -> Optional[Path]:
+def save_model_architecture_to_csv(
+    model: nn.Module, model_name: str, example_input: Optional[torch.Tensor] = None
+) -> Optional[Path]:
     """
     Extract layer-wise parameter information and save it to a CSV file.
     """
@@ -262,7 +308,24 @@ def save_model_architecture_to_csv(model: nn.Module, model_name: str) -> Optiona
         "Layer_Type": "Trainable_Parameters",
         "Parameters_Count": trainable_params
     })
-    
+
+    if example_input is not None:
+        input_shape = tuple(example_input.shape)
+        rows.append({
+            "Layer_Name": "GLOBAL_SUMMARY",
+            "Layer_Type": "Input_Shape",
+            "Parameters_Count": str(input_shape)
+        })
+        flops = count_flops(model, example_input)
+        if flops is not None:
+            print(f"[FLOPs] {model_name}: {flops:,} FLOPs/sample ({flops / 1e6:.1f} MFLOPs) "
+                  f"for input {input_shape}")
+            rows.append({
+                "Layer_Name": "GLOBAL_SUMMARY",
+                "Layer_Type": "Forward_FLOPs_per_sample",
+                "Parameters_Count": flops
+            })
+
     # Inspecting layers and their parameters
     for name, module in model.named_modules():
         layer_params = sum(p.numel() for p in module.parameters(recurse=False))

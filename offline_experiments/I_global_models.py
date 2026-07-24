@@ -8,21 +8,23 @@
 Global Experiment Evaluation Setting
 
 Behavior:
-- Load all windows/features for the given subject + condition.
-- Run CV as configured in base_config['cv'] (by defualt, leave_one_batch_out).
+- Load all windows/features for the given subject(s) + condition.
+- Run CV as configured in base_config['cv'] (by default, leave_one_batch_out).
 - Save outputs under:
     <ARTIFACTS_DIR>/models/<experiment_subdir>/<subject>/<condition>/<model_name>/<MODEL_NAME_ID>/model_<k>/
+  or when pooled:
+    <ARTIFACTS_DIR>/models/<experiment_subdir>/all_subjects/<condition>/<model_name>/<MODEL_NAME_ID>/model_<k>/
 
 Compatibility goals:
-1) Importable by `scripts/30_run_experiments.py` (runs ONE subject/condition per call).
-2) Runnable as a standalone script (loops subjects/conditions by default).
-
+1) Importable by `scripts/30_run_experiments.py`.
+2) Runnable as a standalone script with CLI arguments and `--pool_subjects` support.
 """
 
 from __future__ import annotations
 
 import sys
 import json
+import argparse
 from pathlib import Path
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
@@ -414,35 +416,72 @@ class Global_Model_Trainer:
         return self.model_dire
 
 
+def run_all_subjects(
+    base_config: dict,
+    model_config: dict,
+    subjects: List[str],
+    conditions: List[str],
+    experiment_subdir: str = "global",
+) -> None:
+    """
+    Run global evaluation pooling all specified subjects together into a single dataset.
+    Passing a list of subjects automatically sets all_subjects_models = True in the trainer.
+    """
+    for cond in conditions:
+        print("\n" + "=" * 80)
+        print(f"Running Pooled Global Model (all_subjects) | subjects={subjects} | condition={cond}")
+        print("=" * 80)
+
+        cfg_run = deepcopy(base_config)
+        cfg_run["data"]["subject_id"] = subjects  # Passing a list activates pooled training
+        cfg_run["condition"] = cond
+
+        trainer = Global_Model_Trainer(
+            base_config=cfg_run, model_config=model_config, experiment_subdir=experiment_subdir
+        )
+        out_dir = trainer.main()
+        print(f"[DONE] outputs in: {out_dir}")
+
+
 def main():
     """Standalone entrypoint."""
+    parser = argparse.ArgumentParser(description="Run Global Model Trainer standalone.")
     config_root = REPO_ROOT / "config"
-    base_config_path = config_root / "paper_models_config.yaml"
-    model_config_path = (
-        config_root / "models_configs" / "random_forest_config.yaml"
-    )  # or speechnet_config.yaml
+    parser.add_argument("--base_config", type=Path, default=config_root / "paper_models_config.yaml")
+    parser.add_argument(
+        "--model_config", type=Path, default=config_root / "models_configs" / "random_forest_config.yaml"
+    )
+    parser.add_argument("--subjects", nargs="+", default=["S01", "S02", "S03", "S04"])
+    parser.add_argument("--conditions", nargs="+", default=["silent", "vocalized"])
+    parser.add_argument(
+        "--pool_subjects",
+        action="store_true",
+        help="Pool all specified subjects together into a single dataset (all_subjects mode).",
+    )
+    args = parser.parse_args()
 
-    base_cfg = yaml.safe_load(base_config_path.read_text())
-    model_cfg = yaml.safe_load(model_config_path.read_text())
+    base_cfg = yaml.safe_load(args.base_config.read_text())
+    model_cfg = yaml.safe_load(args.model_config.read_text())
 
-    subjects = ["S01", "S02", "S03", "S04"]
-    conditions = ["silent", "vocalized"]
+    if args.pool_subjects:
+        run_all_subjects(base_cfg, model_cfg, args.subjects, args.conditions, experiment_subdir="global")
+    else:
+        for sub in args.subjects:
+            for cond in args.conditions:
 
-    for sub in subjects:
-        for cond in conditions:
-            print("\n" + "=" * 80)
-            print(f"Running Global Model | subject={sub} | condition={cond}")
-            print("=" * 80)
+                cfg_run = deepcopy(base_cfg)
+                cfg_run["data"]["subject_id"] = sub
+                cfg_run["condition"] = cond
+                
+                print("\n" + "=" * 80)
+                print(f"Running Global Model | subject={sub} | condition={cond}")
+                print("=" * 80)
 
-            cfg_run = deepcopy(base_cfg)
-            cfg_run["data"]["subject_id"] = sub
-            cfg_run["condition"] = cond
-
-            trainer = Global_Model_Trainer(
-                base_config=cfg_run, model_config=model_cfg, experiment_subdir="global"
-            )
-            out_dir = trainer.main()
-            print(f"[DONE] outputs in: {out_dir}")
+                trainer = Global_Model_Trainer(
+                    base_config=cfg_run, model_config=model_cfg, experiment_subdir="global"
+                )
+                out_dir = trainer.main()
+                print(f"[DONE] outputs in: {out_dir}")
 
 
 if __name__ == "__main__":

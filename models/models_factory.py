@@ -283,3 +283,44 @@ def emg_transformer(
         in_chans=num_channels,
         **model_kwargs,
     )
+    
+    
+@register_dl_model("speechnet_transformer")
+def speechnet_transformer(
+    *,
+    num_channels: int,
+    num_samples: int,
+    num_classes: int,
+    **model_kwargs,
+) -> nn.Module:
+    """
+    Factory for SpeechNetTransformer.
+
+    Transformer variant of SpeechNet (BiLSTM replaced by a Transformer encoder,
+    matched at equal parameter budget). Handles CE/CTC.
+
+    Required ctx keys:
+      - num_channels
+      - num_samples
+      - num_classes
+
+    Optional kwargs:
+      - d_model, nhead, num_layers, dim_feedforward (Transformer sizing)
+      - any SpeechNet architecture argument (domain, blocks_config, mfcc_cfg, ...)
+    """
+    from models.cnn_architectures.SpeechNetTransformer import SpeechNetTransformer
+
+    train_cfg = model_kwargs.get("train_cfg", {})
+    loss_name = str(train_cfg.get("loss_name", "cross_entropy")).lower().strip()
+    if loss_name not in {"ctc", "cross_entropy"}:
+        raise ValueError(f"Unsupported loss_name='{loss_name}'.")
+
+    use_ctc = loss_name == "ctc"
+    output_classes = num_classes + (1 if use_ctc else 0)
+
+    return SpeechNetTransformer(
+        C=num_channels,
+        T=num_samples,
+        output_classes=output_classes,
+        **model_kwargs,
+    )

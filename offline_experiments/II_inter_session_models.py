@@ -8,23 +8,26 @@
 Inter-session models (subject-specific or pooled).
 
 Behavior:
-- Load all windows/features for the given subject + condition (and window size).
+- Load all windows/features for the given subject(s) + condition (and window size).
 - Run LOSO CV across acquisition sessions:
     * train on all sessions except one
     * validate via random stratified split from train sessions
     * test on the held-out session
 - Save outputs under:
     <ARTIFACTS_DIR>/models/<experiment_subdir>/<subject>/<condition>/<model_name>/<MODEL_NAME_ID>/model_<k>/
+  or when pooled:
+    <ARTIFACTS_DIR>/models/<experiment_subdir>/all_subjects/<condition>/<model_name>/<MODEL_NAME_ID>/model_<k>/
 
 Compatibility goals:
-1) Importable by `scripts/30_run_experiments.py` (runs ONE subject/condition per call).
-2) Runnable as a standalone script (loops subjects/conditions by default).
+1) Importable by `scripts/30_run_experiments.py`.
+2) Runnable as a standalone script with CLI arguments and `--pool_subjects` support.
 """
 
 from __future__ import annotations
 
 import sys
 import json
+import argparse
 from pathlib import Path
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
@@ -310,35 +313,70 @@ class Inter_Session_Model_Trainer:
         return self.model_dire
 
 
+def run_all_subjects(
+    base_config: dict,
+    model_config: dict,
+    subjects: List[str],
+    conditions: List[str],
+    experiment_subdir: str = "inter_session",
+) -> None:
+    """
+    Run inter-session evaluation pooling all specified subjects together into a single dataset.
+    Passing a list of subjects automatically sets all_subjects_models = True in the trainer.
+    """
+    for cond in conditions:
+        print("\n" + "=" * 80)
+        print(f"Running Pooled Inter-Session Model (all_subjects) | subjects={subjects} | condition={cond}")
+        print("=" * 80)
+
+        cfg_run = deepcopy(base_config)
+        cfg_run["data"]["subject_id"] = subjects  # Passing a list activates pooled training
+        cfg_run["condition"] = cond
+
+        trainer = Inter_Session_Model_Trainer(
+            base_config=cfg_run, model_config=model_config, experiment_subdir=experiment_subdir
+        )
+        out_dir = trainer.main()
+        print(f"[DONE] outputs in: {out_dir}")
+
+
 def main():
     """Standalone entrypoint."""
+    parser = argparse.ArgumentParser(description="Run Inter-Session Model Trainer standalone.")
     config_root = REPO_ROOT / "config"
+    parser.add_argument("--base_config", type=Path, default=config_root / "paper_models_config.yaml")
+    parser.add_argument(
+        "--model_config", type=Path, default=config_root / "models_configs" / "random_forest_config.yaml"
+    )
+    parser.add_argument("--subjects", nargs="+", default=["S01", "S02", "S03", "S04"])
+    parser.add_argument("--conditions", nargs="+", default=["silent", "vocalized"])
+    parser.add_argument(
+        "--pool_subjects",
+        action="store_true",
+        help="Pool all specified subjects together into a single dataset.",
+    )
+    args = parser.parse_args()
 
-    base_config_path = config_root / "paper_models_config.yaml"
-    model_config_path = config_root / "models_configs" / "random_forest_config.yaml"
-    # or model_config_path = config_root / "models_configs" / "speechnet_config.yaml"
+    base_cfg = yaml.safe_load(args.base_config.read_text())
+    model_cfg = yaml.safe_load(args.model_config.read_text())
 
-    base_cfg = yaml.safe_load(base_config_path.read_text())
-    model_cfg = yaml.safe_load(model_config_path.read_text())
+    if args.pool_subjects:
+        run_all_subjects(base_cfg, model_cfg, args.subjects, args.conditions, experiment_subdir="inter_session")
+    else:
+        for sub in args.subjects:
+            for cond in args.conditions:
+                cfg_run = deepcopy(base_cfg)
+                cfg_run["data"]["subject_id"] = sub
+                cfg_run["condition"] = cond
+                print("\n" + "=" * 80)
+                print(f"Running Inter-Session Model | subject={sub} | condition={cond}")
+                print("=" * 80)
 
-    subjects = ["S01", "S02", "S03", "S04"]
-    conditions = ["silent", "vocalized"]
-
-    for sub in subjects:
-        for cond in conditions:
-            cfg_run = deepcopy(base_cfg)
-            cfg_run["data"]["subject_id"] = sub
-            cfg_run["condition"] = cond
-
-            print("\n" + "=" * 80)
-            print(f"Running Inter-Session Model | subject={sub} | condition={cond}")
-            print("=" * 80)
-
-            trainer = Inter_Session_Model_Trainer(
-                base_config=cfg_run, model_config=model_cfg, experiment_subdir="inter_session"
-            )
-            out_dir = trainer.main()
-            print(f"[DONE] outputs in: {out_dir}")
+                trainer = Inter_Session_Model_Trainer(
+                    base_config=cfg_run, model_config=model_cfg, experiment_subdir="inter_session"
+                )
+                out_dir = trainer.main()
+                print(f"[DONE] outputs in: {out_dir}")
 
 
 if __name__ == "__main__":

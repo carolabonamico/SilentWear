@@ -37,7 +37,7 @@ from utils.I_data_preparation.experimental_config import (
 # ============= USER_EDITABLE PART =============================================
 sub_ids = ["S01", "S02", "S03"]  # add as many users as you want
 main_data_directory = Path(
-    r"C:/Users/giusy/OneDrive/Desktop/PAPERS/2026_Sensors_speech/SilentWear/data"
+    r"path/to/your/data"
 )
 wins_feats_name = WINS_AND_FEATURES_DIRNAME
 win_size_ms = [1400]  # add as many as you want

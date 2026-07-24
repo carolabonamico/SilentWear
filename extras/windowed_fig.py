@@ -30,7 +30,7 @@ from fig_config import channel_colors, neckband_ch_order
 
 wins_root = Path("path/to/wins_root")  # Update this to the actual path where the WIN_{window_ms} folders are located
 out_dir_base = Path("./windowing_check/figures") # Base directory for saving plots
-subject_id = ["S01"]                   # Update this to the actual subject ID you want to process (e.g., "S01", "S02", etc.)
+subject_ids = ["S01"]                   # Update this to the actual subject ID you want to process (e.g., "S01", "S02", etc.)
 window_ms = 1400                       # Update this to the desired window size in milliseconds (e.g., 400, 800, etc.) 
 conditions = None                      # Set to None to include all conditions, or specify a list of conditions to include (e.g., ["vocalized", "silent"])  
 target_session = 1                     # Set to None to include all sessions, or specify a session number to filter (e.g., 1, 2, etc.)  

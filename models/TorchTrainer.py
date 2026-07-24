@@ -13,13 +13,15 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 from models.seeds import *
 from models.utils import compute_metrics, compute_wer_metrics
-from typing import Dict, Optional, Tuple, Literal, cast
+from typing import Dict, List, Optional, Tuple, Literal, cast
+import json
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
 import torch
+import torch.nn.functional as F
 import hashlib
 from torch.optim.swa_utils import update_bn
-from models.strategies import TaskStrategy, CTCRecognitionStrategy
+from models.strategies import TaskStrategy, CTCStrategy, CTCRecognitionStrategy
 
 DEFAULT_EARLY_STOP_PATIENCE = 5  # default value if not specified in train_cfg
 
@@ -409,13 +411,19 @@ class TorchTrainer:
         )
         return self.model
 
-    def evaluate(self, test_loader=None):
+    def evaluate(self, test_loader=None, dump_path=None, pred_txt_path=None):
         """
         Evaluates the model on the test set and returns metrics, true labels, and predicted labels.
         If test_loader is provided, it will be used instead of the default test_loader created from df_test.
+        If dump_path is provided (CTC strategies only), the per-sample test log-probs
+        are also written to disk so decode parameters can be swept offline.
+        If pred_txt_path is provided (CTC strategies only), a human-readable per-sample
+        prediction file (pre/post lexicon constraint) is written.
         """
         loader = test_loader if test_loader is not None else self.test_loader
-        return evaluate_model(self.model, loader, self.strategy)
+        return evaluate_model(
+            self.model, loader, self.strategy, dump_path=dump_path, pred_txt_path=pred_txt_path
+        )
 
     def check_data_splits(self):
         """
@@ -509,17 +517,147 @@ class TorchTrainer:
 ################################################### Standalone functions ########################
 
 
+def _dump_ctc_logprobs(
+    dump_path,
+    logprob_chunks: List[np.ndarray],
+    label_chunks: List[np.ndarray],
+    strategy: "CTCStrategy",
+) -> None:
+    """Persist test-set log-probs + reference labels for offline decode sweeps.
+
+    Writes ``<dump_path>`` (an .npz with ``log_probs`` (N, T, C) fp16 and
+    ``labels`` (N,) int64) plus a sibling ``<dump_path>.meta.json`` carrying the
+    exact token<->char table and label<->text map, so VII_beam_sweep.py can rebuild the
+    decoder offline without the data pipeline or the lexicon file.
+    """
+    if not logprob_chunks:
+        return
+    dump_path = Path(dump_path)
+    dump_path = dump_path if dump_path.suffix == ".npz" else dump_path.with_suffix(".npz")
+    dump_path.parent.mkdir(parents=True, exist_ok=True)
+
+    log_probs = np.concatenate(logprob_chunks, axis=0)
+    labels = np.concatenate(label_chunks, axis=0).astype(np.int64)
+
+    mapper = strategy.text_mapper
+    meta = {
+        "task": "recognition" if isinstance(strategy, CTCRecognitionStrategy) else "classification",
+        "blank_id": int(mapper.blank_id),
+        "int_to_char": {str(int(k)): v for k, v in mapper.int_to_char.items()},
+        "label_to_text_map": {str(int(k)): v for k, v in mapper.label_to_text_map.items()},
+        "label_mode": getattr(strategy, "label_mode", None),
+        "num_samples": int(labels.shape[0]),
+        "num_frames": int(log_probs.shape[1]),
+        "num_tokens": int(log_probs.shape[2]),
+    }
+    np.savez_compressed(dump_path, log_probs=log_probs, labels=labels)
+    dump_path.with_suffix(".meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+    print(f"[DUMP] test log-probs -> {dump_path} ({log_probs.shape}, fp16)")
+
+
+def _write_pred_txt(
+    pred_txt_path,
+    task: str,
+    references: List[str],
+    recognition_outputs: List[str],
+    classification_outputs: List[str],
+) -> None:
+    """Write a per-sample prediction dump (``.txt`` + ``.csv``) for a CTC evaluation.
+
+    The columns are task-specific -- a classification-only field is never shown for
+    a recognition run (and vice-versa):
+      - **recognition**: ``index, reference, recognition_output`` where
+        ``reference`` is the ground-truth text and ``recognition_output`` is the
+        free-character CTC decode (the hypothesis).
+      - **classification**: the above plus ``classification_output`` -- the
+        closed-set class text the sample was snapped to (the predicted class /
+        sentence-or-word it converges to).
+
+    The exact-match summary line only counts the fields that are actually present:
+    a recognition dump reports recognition exact-match only. A ``.csv`` sibling with
+    the same rows (header row, no ``#`` comments) is written for programmatic use.
+    """
+    import csv as _csv
+
+    task = str(task).lower().strip()
+    is_cls = task == "classification"
+
+    pred_txt_path = Path(pred_txt_path)
+    pred_txt_path = pred_txt_path if pred_txt_path.suffix == ".txt" else pred_txt_path.with_suffix(".txt")
+    pred_txt_path.parent.mkdir(parents=True, exist_ok=True)
+
+    n = len(references)
+    if is_cls:
+        header = ["index", "reference", "recognition_output", "classification_output"]
+        rows = [[i, r, h, c] for i, (r, h, c)
+                in enumerate(zip(references, recognition_outputs, classification_outputs))]
+    else:
+        header = ["index", "reference", "recognition_output"]
+        rows = [[i, r, h] for i, (r, h) in enumerate(zip(references, recognition_outputs))]
+
+    correct_rec = sum(1 for r, h in zip(references, recognition_outputs) if r == h)
+    summary = [f"recognition={correct_rec}/{n}"]
+    if is_cls:
+        correct_cls = sum(1 for r, c in zip(references, classification_outputs) if r == c)
+        summary.append(f"classification={correct_cls}/{n}")
+
+    comments = [
+        f"# CTC prediction dump | task={task} | n_samples={n}",
+        "# reference = ground-truth text | recognition_output = free-character CTC decode (hypothesis)",
+    ]
+    if is_cls:
+        comments.append("# classification_output = closed-set class text after the lexicon constraint (predicted class)")
+    comments.append(f"# exact-match: {'  '.join(summary)}")
+
+    # .txt: comment header + tab-separated table (human-readable).
+    txt_lines = comments + ["\t".join(header)]
+    txt_lines += ["\t".join(str(v) for v in row) for row in rows]
+    pred_txt_path.write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
+
+    # .csv: same rows, plain header (machine-readable).
+    csv_path = pred_txt_path.with_suffix(".csv")
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = _csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(rows)
+
+    print(f"[PRED] per-sample predictions ({task}) -> {pred_txt_path} (+ .csv)")
+
+
+def _label_ints_to_texts(mapper, label_ints) -> List[str]:
+    """Map class label ids to their lexicon text, marking unmatched (-1) samples."""
+    return [
+        mapper.label_to_text_map.get(int(l), "<unmatched>") if int(l) >= 0 else "<unmatched>"
+        for l in label_ints
+    ]
+
+
 def evaluate_model(
-    model, test_loader, strategy: TaskStrategy
+    model, test_loader, strategy: TaskStrategy, dump_path=None, pred_txt_path=None
 ) -> Tuple[Optional[dict], Optional[np.ndarray], Optional[np.ndarray]]:
     """
     Compute predictions and metrics on the test set using the provided model, test_loader, and strategy.
+
+    If ``dump_path`` is set and the strategy is CTC-based, the per-sample test
+    log-probs and reference labels are also written to disk (see
+    :func:`_dump_ctc_logprobs`) for offline decode-parameter sweeps.
+
+    If ``pred_txt_path`` is set and the strategy is CTC-based, a human-readable
+    per-sample prediction file is written with the model output for both tasks
+    (free-character decode before the lexicon constraint, and the class after it);
+    see :func:`_write_pred_txt`.
     """
     if strategy is None:
         raise ValueError("A TaskStrategy must be explicitly provided for evaluation.")
 
     device = next(model.parameters()).device
     model.eval()
+
+    ctc_strategy = strategy if isinstance(strategy, CTCStrategy) else None
+    dump = dump_path is not None and ctc_strategy is not None
+    want_txt = pred_txt_path is not None and ctc_strategy is not None
+    logprob_chunks: List[np.ndarray] = []
+    label_chunks: List[np.ndarray] = []
 
     # Free-character recognition path: decode to collapsed character text and
     # score with WER/CER (instead of accuracy/precision/recall/F1).
@@ -530,8 +668,19 @@ def evaluate_model(
                 inputs = inputs.to(device)
                 targets = targets.to(device).long()
                 outputs = model(inputs)
+                if dump:
+                    logits = strategy._extract_logits(outputs)
+                    logprob_chunks.append(F.log_softmax(logits, dim=-1).detach().cpu().to(torch.float16).numpy())
+                    label_chunks.append(targets.detach().cpu().numpy())
                 hypotheses.extend(strategy.predict_texts(outputs))
                 references.extend(strategy.reference_texts(targets))
+        if dump:
+            _dump_ctc_logprobs(dump_path, logprob_chunks, label_chunks, strategy)
+        if want_txt and references:
+            mapper = strategy.text_mapper
+            pred_ints, _ = mapper.texts_to_label_int(list(hypotheses), allow_nearest=True)
+            cls_outputs = _label_ints_to_texts(mapper, pred_ints)
+            _write_pred_txt(pred_txt_path, "recognition", references, hypotheses, cls_outputs)
         if not references:
             return None, None, None
         metrics, refs, hyps = compute_wer_metrics(references, hypotheses)
@@ -539,6 +688,8 @@ def evaluate_model(
 
     all_targets = []
     all_preds = []
+    raw_texts: List[str] = []      # free-character decode, before lexicon (for want_txt)
+    ref_texts: List[str] = []      # reference texts (for want_txt)
 
     with torch.no_grad():
         for inputs, targets in test_loader:
@@ -546,6 +697,15 @@ def evaluate_model(
             targets = targets.to(device).long()
 
             outputs = model(inputs)
+
+            if dump or want_txt:
+                logits = strategy._extract_logits(outputs)
+                if dump and logits.ndim == 3:
+                    logprob_chunks.append(F.log_softmax(logits, dim=-1).detach().cpu().to(torch.float16).numpy())
+                    label_chunks.append(targets.detach().cpu().numpy())
+                if want_txt and ctc_strategy is not None and logits.ndim == 3:
+                    raw_texts.extend(ctc_strategy._decode_texts(logits))
+                    ref_texts.extend(ctc_strategy.text_mapper.label_int_to_texts(targets))
 
             # Use strategy to obtain final predicted labels (handles CE and CTC)
             preds_np = strategy.predict_labels(outputs)
@@ -563,12 +723,22 @@ def evaluate_model(
             all_preds.append(batch_preds)
             all_targets.append(targets.cpu().numpy())
 
+    if dump and ctc_strategy is not None:
+        _dump_ctc_logprobs(dump_path, logprob_chunks, label_chunks, ctc_strategy)
+
     # Concatenate batches along first axis
     if len(all_targets) == 0:
         return None, None, None
 
     y_true = np.concatenate(all_targets, axis=0)
     y_pred = np.concatenate(all_preds, axis=0)
+
+    if want_txt and raw_texts and ctc_strategy is not None:
+        # classification_output = predicted class text (AFTER the lexicon constraint);
+        # recognition_output = raw free-character decode (BEFORE it).
+        mapper = ctc_strategy.text_mapper
+        cls_outputs = _label_ints_to_texts(mapper, y_pred.tolist())
+        _write_pred_txt(pred_txt_path, "classification", ref_texts, raw_texts, cls_outputs)
 
     metrics, y_true, y_pred = compute_metrics(y_true, y_pred)
 

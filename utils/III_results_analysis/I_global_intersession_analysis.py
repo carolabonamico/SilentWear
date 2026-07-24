@@ -20,22 +20,28 @@ Supports both metric modes, auto-detected from the cv_summary.csv columns:
 
 New artifacts layout (paper wrapper compatible):
   <ARTIFACTS_DIR>/models/<experiment>/<subject>/<condition>/<model_name>/<model_name_id>/model_<k>/
-    - cv_summary.csv
-    - run_cfg.json
+  or when pooled:
+  <ARTIFACTS_DIR>/models/<experiment>/all_subjects/<condition>/<model_name>/<model_name_id>/model_<k>/
 
 Outputs:
   <ARTIFACTS_DIR>/tables/{model}_{model_run or latest}_{condition}_{model_name_id}_{experiment}.csv
   <ARTIFACTS_DIR>/figures/{model}_{model_run or latest}_{condition}_{model_name_id}_{experiment}_cm.svg
 
 Examples:
-
-
-Global @ 1400ms:
+Global @ 1400ms (Subject-Specific):
   python utils/III_results_analysis/I_global_intersession_analysis.py \
     --artifacts_dir ./artifacts \
     --experiment global \
     --model_name random_forest \
     --model_name_id w1400ms
+
+Global @ 1400ms (Pooled All Subjects):
+  python utils/III_results_analysis/I_global_intersession_analysis.py \
+    --artifacts_dir ./artifacts \
+    --experiment global \
+    --model_name random_forest \
+    --model_name_id w1400ms \
+    --pool_subjects
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -272,6 +279,12 @@ def main():
 
     ap.add_argument("--subjects", nargs="+", default=["S01", "S02", "S03", "S04"])
     ap.add_argument("--conditions", nargs="+", default=["silent", "vocalized"])
+    
+    ap.add_argument(
+        "--pool_subjects",
+        action="store_true",
+        help="Look for pooled 'all_subjects' models instead of individual subject folders.",
+    )
 
     ap.add_argument(
         "--model_name", type=str, required=True, help="e.g., speechnet or random_forest"
@@ -312,6 +325,9 @@ def main():
 
     args = ap.parse_args()
 
+    if args.pool_subjects:
+        args.subjects = ["all_subjects"]
+
     artifacts_dir = args.artifacts_dir
     if artifacts_dir is None:
         env = os.environ.get("SILENTWEAR_ARTIFACTS_DIR", None)
@@ -347,15 +363,16 @@ def main():
     )
 
     if len(runs) == 0:
-        raise SystemExit(
-            f"No runs found for experiment={args.experiment}, model={args.model_name}, "
-            f"model_name_ids={model_name_ids}. Check artifacts_dir={artifacts_dir}"
+        print(
+            f"[WARN] No runs found for experiment={args.experiment}, model={args.model_name}, "
+            f"subjects={args.subjects}, model_name_ids={model_name_ids}. Check artifacts_dir={artifacts_dir}"
         )
+        return
 
     # Group runs by (model_name_id, condition)
-    by_mid_cond: Dict[Tuple[str, str], List[RunRef]] = {}
+    by_mid_cond: Dict[Tuple[str, str], List[RunRef]] = defaultdict(list)
     for r in runs:
-        by_mid_cond.setdefault((r.model_name_id, r.condition), []).append(r)
+        by_mid_cond[(r.model_name_id, r.condition)].append(r)
 
     model_run_tag = args.model_run if args.model_run else "latest"
 
@@ -371,7 +388,7 @@ def main():
         row_modes = []
         # Keep deterministic subject ordering
         for sub in args.subjects:
-            rr = [r for r in run_list if r.subject == sub]
+            rr: List[RunRef] = [r for r in run_list if r.subject == sub]
             if len(rr) == 0:
                 continue
             if len(rr) > 1:
@@ -421,7 +438,7 @@ def main():
             row_modes.append(metrics_mode)
 
         if len(rows) == 0:
-            print(f"[WARN] No subjects found for {mid} / {cond}")
+            print(f"[WARN] No valid subject data found for {mid} / {cond}")
             continue
 
         if len(set(row_modes)) > 1:
@@ -458,7 +475,6 @@ def main():
                 "balanced_acc_vals": "",
                 "mean_std_perc": f"{np.round(np.mean(all_means)*100, 2)}±{np.round(np.std(all_means)*100, 2)}",
             }
-            print_cols = ["subject", "model_run", "mean_std_perc"]
         else:
             # Recognition: pretty mean±std (%) per WER/CER metric
             metric_cols = [c for c in RECOGNITION_METRICS if f"{c}_vals" in summary_subjects.columns]
@@ -488,17 +504,32 @@ def main():
                 all_row[f"{col}_mean_std_perc"] = (
                     f"{np.round(np.mean(all_means)*100, 2)}±{np.round(np.std(all_means)*100, 2)}"
                 )
-            print_cols = ["subject", "model_run"] + [f"{c}_mean_std_perc" for c in metric_cols]
 
-        summary_subjects = pd.concat([summary_subjects, pd.DataFrame([all_row])], ignore_index=True)
+        # Do not append "All" row when evaluating a single pooled model (all_subjects)
+        if not args.pool_subjects and len(summary_subjects) > 1:
+            summary_subjects = pd.concat([summary_subjects, pd.DataFrame([all_row])], ignore_index=True)
 
         # Save CSV
         out_csv = (
             tables_dir / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}.csv"
         )
         summary_subjects.to_csv(out_csv, index=False)
-        print(summary_subjects[print_cols].to_string(index=False))
         print(f"[SAVED] {out_csv}")
+
+        if group_mode == "classification":
+            for _, r_row in summary_subjects.iterrows():
+                sub_label = r_row["subject"]
+                acc_val = r_row.get("mean_std_perc", "N/A")
+                print(f"\nSubject: {sub_label:<12} | Balanced Accuracy: {acc_val}%\n")
+        else:
+            for _, r_row in summary_subjects.iterrows():
+                sub_label = r_row["subject"]
+                metrics_str = []
+                for col in ["balanced_wer", "wer", "balanced_cer", "cer"]:
+                    if f"{col}_mean_std_perc" in r_row:
+                        metrics_str.append(f"{col.upper()}: {r_row[f'{col}_mean_std_perc']}%")
+                print(f"\nSubject: {sub_label:<12} | " + " | ".join(metrics_str))
+                print()
 
     # Combined session fold scatter block plot layout
     if args.plot_block_scatter:
@@ -507,11 +538,11 @@ def main():
         else:
             by_mid_only: Dict[str, Dict[str, List[RunRef]]] = {}
             for r in runs:
-                by_mid_only.setdefault(r.model_name_id, {}).setdefault(r.condition, []).append(r)
+                by_mid_only[r.model_name_id][r.condition].append(r)
 
             for mid, runs_by_cond in sorted(by_mid_only.items()):
                 for cond in args.conditions:
-                    run_list_cond = runs_by_cond.get(cond, [])
+                    run_list_cond: List[RunRef] = runs_by_cond.get(cond, [])
                     if not run_list_cond:
                         continue
 
@@ -524,7 +555,7 @@ def main():
                     recog_metric_key = "wer"   # 'wer' (sentence) or 'cer' (word)
 
                     for sub in args.subjects:
-                        rr = [r for r in run_list_cond if r.subject == sub]
+                        rr: List[RunRef] = [r for r in run_list_cond if r.subject == sub]
                         if not rr:
                             continue
                         r = sorted(rr, key=lambda x: (int(x.model_run.split("_")[-1]) if x.model_run.startswith("model_") else -1))[-1]
@@ -586,8 +617,8 @@ def main():
                     }
 
                     # Dynamic figure instantiation
-                    n_blocks = len(valid_subjects) + 1
-                    fig, ax1 = plt.subplots(1, 1, figsize=(1.8 * n_blocks, 3.2))
+                    n_blocks = len(valid_subjects) + (0 if args.pool_subjects else 1)
+                    fig, ax1 = plt.subplots(1, 1, figsize=(1.8 * max(1, n_blocks), 3.2))
                     ax2 = ax1.twinx()
                     x_values = np.arange(1, max_folds + 1)
 
@@ -597,7 +628,7 @@ def main():
                     build_twin_axis_blocks(
                         ax1=ax1, ax2=ax2, subjects=valid_subjects, x_values=x_values,
                         series1=series_bal, series2=series_unbal, series1_styles=s1_styles, series2_styles=s2_styles,
-                        with_average=True, x_label="Fold (Session)", y1_label=y1_label, y2_label=y2_label,
+                        with_average=(not args.pool_subjects and len(valid_subjects) > 1), x_label="Fold (Session)", y1_label=y1_label, y2_label=y2_label,
                         y1_lim=(0, y_max), y2_lim=(0, y_max), y1_major_step=10, y2_major_step=10,
                         x_tick_labels=[str(x) for x in x_values], gap=1.0, block_margin=0.5,
                         label_y_offset=10.0, label_fontsize=10, label_position="bottom"
@@ -614,14 +645,15 @@ def main():
 
     # Confusion matrices: one figure per mid, all conditions side by side
     if args.plot_confusion_matrix:
-        # Group runs by mid only
-        by_mid: Dict[str, Dict[str, List[RunRef]]] = {}
+        by_mid: Dict[str, Dict[str, List[RunRef]]] = defaultdict(lambda: defaultdict(list))
         for r in runs:
-            by_mid.setdefault(r.model_name_id, {}).setdefault(r.condition, []).append(r)
+            by_mid[r.model_name_id][r.condition].append(r)
 
         for mid, runs_by_cond in sorted(by_mid.items()):
             target_conds = [c for c in args.conditions if c in runs_by_cond]
             nconds = len(target_conds)
+            if not target_conds:
+                continue
 
             # Recognition runs have no confusion matrix (predictions are strings)
             probe_df = pd.read_csv(runs_by_cond[target_conds[0]][0].cv_summary_csv)
@@ -637,8 +669,11 @@ def main():
             active_subj_set = {r.subject for rl in runs_by_cond.values() for r in rl}
             target_subjs = [s for s in args.subjects if s in active_subj_set]
             n_subjs = len(target_subjs)
-            ncols = 2
-            nrows = math.ceil(n_subjs / ncols)
+            if n_subjs == 0:
+                continue
+
+            ncols = min(2, n_subjs)
+            nrows = math.ceil(n_subjs / max(1, ncols))
 
             # Load summary CSVs (already saved above) for title annotations
             summary_dict: Dict[str, pd.DataFrame] = {}
@@ -698,9 +733,7 @@ def main():
                 last_im = None
 
                 for cond_idx, cond in enumerate(target_conds):
-                    run_list_cond = runs_by_cond.get(cond, [])
-                    summary_df = summary_dict.get(cond, pd.DataFrame())
-
+                    run_list_cond: List[RunRef] = runs_by_cond.get(cond, [])
                     for col_rel in range(ncols):
                         subj_idx = row * ncols + col_rel
                         if subj_idx >= n_subjs:
@@ -710,7 +743,7 @@ def main():
                         col_abs = 2 + cond_idx * (ncols + 1) + col_rel
                         ax = fig.add_subplot(gs[row, col_abs])
 
-                        rr = [r for r in run_list_cond if r.subject == sub]
+                        rr: List[RunRef] = [r for r in run_list_cond if r.subject == sub]
                         if len(rr) == 0:
                             ax.set_xticks([])
                             ax.set_yticks([])
