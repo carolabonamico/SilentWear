@@ -378,11 +378,11 @@ def main():
 
     # For each window + condition, build per-subject summary and save CSV
     for (mid, cond), run_list in sorted(by_mid_cond.items(), key=lambda x: (x[0][0], x[0][1])):
-        print("\n" + "=" * 90)
+        print("\n" + "=" * 110)
         print(
             f"Experiment: {args.experiment} | Model: {args.model_name} | model_name_id: {mid} | Condition: {cond}"
         )
-        print("=" * 90)
+        print("=" * 110)
 
         rows = []
         row_modes = []
@@ -416,14 +416,16 @@ def main():
                 "run_path": str(r.run_path),
             }
             if metrics_mode == "classification":
-                bal_vals = df["balanced_accuracy"].astype(float).to_numpy()
-                row.update(
-                    {
-                        "balanced_acc_mean": float(np.mean(bal_vals)),
-                        "balanced_acc_std": float(np.std(bal_vals)),
-                        "balanced_acc_vals": json.dumps(bal_vals.tolist()),
-                    }
-                )
+                for df_col, out_col in [("balanced_accuracy", "balanced_accuracy"), ("accuracy", "unbalanced_accuracy")]:
+                    if df_col in df.columns:
+                        vals = df[df_col].astype(float).to_numpy()
+                        row.update(
+                            {
+                                f"{out_col}_mean": float(np.mean(vals)),
+                                f"{out_col}_std": float(np.std(vals)),
+                                f"{out_col}_vals": json.dumps(vals.tolist()),
+                            }
+                        )
             else:
                 for col in [c for c in RECOGNITION_METRICS if c in df.columns]:
                     vals = df[col].astype(float).to_numpy()
@@ -451,59 +453,35 @@ def main():
 
         summary_subjects = pd.DataFrame(rows)
 
-        if group_mode == "classification":
-            # Pretty mean±std (%)
+        metric_group_cols = CLASSIFICATION_METRICS if group_mode == "classification" else RECOGNITION_METRICS
+        metric_cols = [c for c in metric_group_cols if f"{c}_vals" in summary_subjects.columns]
+
+        for col in metric_cols:
             mean_std_fmt = []
             for _, row in summary_subjects.iterrows():
-                vals = np.asarray(json.loads(row["balanced_acc_vals"]), dtype=float)
+                vals = np.asarray(json.loads(row[f"{col}_vals"]), dtype=float)
                 mean = np.round(np.mean(vals) * 100, 1)
                 std = np.round(np.std(vals) * 100, 1)
                 mean_std_fmt.append(f"{mean}±{std}")
-            summary_subjects["mean_std_perc"] = mean_std_fmt
+            summary_subjects[f"{col}_mean_std_perc"] = mean_std_fmt
 
-            # Add All row (mean/std of per-subject means)
-            all_means = summary_subjects["balanced_acc_mean"].to_numpy(dtype=float)
-            all_row = {
-                "subject": "All",
-                "condition": cond,
-                "model_name": args.model_name,
-                "model_name_id": mid,
-                "model_run": model_run_tag,
-                "run_path": "",
-                "balanced_acc_mean": float(np.mean(all_means)),
-                "balanced_acc_std": float(np.std(all_means)),
-                "balanced_acc_vals": "",
-                "mean_std_perc": f"{np.round(np.mean(all_means)*100, 2)}±{np.round(np.std(all_means)*100, 2)}",
-            }
-        else:
-            # Recognition: pretty mean±std (%) per WER/CER metric
-            metric_cols = [c for c in RECOGNITION_METRICS if f"{c}_vals" in summary_subjects.columns]
-            for col in metric_cols:
-                mean_std_fmt = []
-                for _, row in summary_subjects.iterrows():
-                    vals = np.asarray(json.loads(row[f"{col}_vals"]), dtype=float)
-                    mean = np.round(np.mean(vals) * 100, 1)
-                    std = np.round(np.std(vals) * 100, 1)
-                    mean_std_fmt.append(f"{mean}±{std}")
-                summary_subjects[f"{col}_mean_std_perc"] = mean_std_fmt
-
-            # Add All row (mean/std of per-subject means)
-            all_row = {
-                "subject": "All",
-                "condition": cond,
-                "model_name": args.model_name,
-                "model_name_id": mid,
-                "model_run": model_run_tag,
-                "run_path": "",
-            }
-            for col in metric_cols:
-                all_means = summary_subjects[f"{col}_mean"].to_numpy(dtype=float)
-                all_row[f"{col}_mean"] = float(np.mean(all_means))
-                all_row[f"{col}_std"] = float(np.std(all_means))
-                all_row[f"{col}_vals"] = ""
-                all_row[f"{col}_mean_std_perc"] = (
-                    f"{np.round(np.mean(all_means)*100, 2)}±{np.round(np.std(all_means)*100, 2)}"
-                )
+        # Add All row (mean/std of per-subject means)
+        all_row = {
+            "subject": "All",
+            "condition": cond,
+            "model_name": args.model_name,
+            "model_name_id": mid,
+            "model_run": model_run_tag,
+            "run_path": "",
+        }
+        for col in metric_cols:
+            all_means = summary_subjects[f"{col}_mean"].to_numpy(dtype=float)
+            all_row[f"{col}_mean"] = float(np.mean(all_means))
+            all_row[f"{col}_std"] = float(np.std(all_means))
+            all_row[f"{col}_vals"] = ""
+            all_row[f"{col}_mean_std_perc"] = (
+                f"{np.round(np.mean(all_means)*100, 2)}±{np.round(np.std(all_means)*100, 2)}"
+            )
 
         # Do not append "All" row when evaluating a single pooled model (all_subjects)
         if not args.pool_subjects and len(summary_subjects) > 1:
@@ -514,29 +492,25 @@ def main():
             tables_dir / f"{args.model_name}_{model_run_tag}_{cond}_{mid}_{args.experiment}.csv"
         )
         summary_subjects.to_csv(out_csv, index=False)
-        print(f"[SAVED] {out_csv}")
 
-        if group_mode == "classification":
-            for _, r_row in summary_subjects.iterrows():
-                sub_label = r_row["subject"]
-                acc_val = r_row.get("mean_std_perc", "N/A")
-                print(f"\nSubject: {sub_label:<12} | Balanced Accuracy: {acc_val}%\n")
-        else:
-            for _, r_row in summary_subjects.iterrows():
-                sub_label = r_row["subject"]
-                metrics_str = []
-                for col in ["balanced_wer", "wer", "balanced_cer", "cer"]:
-                    if f"{col}_mean_std_perc" in r_row:
-                        metrics_str.append(f"{col.upper()}: {r_row[f'{col}_mean_std_perc']}%")
-                print(f"\nSubject: {sub_label:<12} | " + " | ".join(metrics_str))
-                print()
+        print_cols = [
+            "subject",
+            # "model_run"
+            ] + [
+            f"{c}_mean_std_perc"
+            for c in metric_group_cols
+            if f"{c}_mean_std_perc" in summary_subjects.columns
+        ]
+        # to_string avoids pandas truncating the recognition metric columns
+        print(summary_subjects[print_cols].to_string())
+        print(f"\n[SAVED] {out_csv}")
 
     # Combined session fold scatter block plot layout
     if args.plot_block_scatter:
         if args.experiment != "inter_session":
             print("[WARN] --plot_block_scatter is only supported for 'inter_session' experiments. Skipping.")
         else:
-            by_mid_only: Dict[str, Dict[str, List[RunRef]]] = {}
+            by_mid_only: Dict[str, Dict[str, List[RunRef]]] = defaultdict(lambda: defaultdict(list))
             for r in runs:
                 by_mid_only[r.model_name_id][r.condition].append(r)
 
