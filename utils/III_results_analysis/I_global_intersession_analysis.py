@@ -232,7 +232,10 @@ def _read_label_mode_from_run_cfg(run_cfg_path: Path) -> str:
 
 
 # Metric columns written by compute_wer_metrics for closed-set recognition runs
-RECOGNITION_METRICS = ["wer", "balanced_wer", "cer", "balanced_cer"]
+RECOGNITION_METRICS = [
+    "wer", "balanced_wer", "cer", "balanced_cer", "vocab_wer", "balanced_vocab_wer",
+]
+CLASSIFICATION_METRICS = ["balanced_accuracy", "unbalanced_accuracy"]
 
 
 def _detect_metrics_mode(df: pd.DataFrame) -> Optional[str]:

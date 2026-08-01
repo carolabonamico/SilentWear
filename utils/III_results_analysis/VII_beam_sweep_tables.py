@@ -57,7 +57,9 @@ sys.path.insert(0, str(REPO_ROOT))
 from offline_experiments.VII_beam_sweep import DecodeCombo, OfflineCTCMapper, _decode_seq, load_dumps
 from models.utils import compute_wer_metrics
 
-RECOGNITION_METRICS = ["wer", "balanced_wer", "cer", "balanced_cer"]
+RECOGNITION_METRICS = [
+    "wer", "balanced_wer", "cer", "balanced_cer", "vocab_wer", "balanced_vocab_wer",
+]
 
 
 # --------------------------------------------------------------------------- #

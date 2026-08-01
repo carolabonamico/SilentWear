@@ -50,6 +50,7 @@ import json
 import sys
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
+import editdistance
 
 import numpy as np
 
@@ -60,15 +61,12 @@ from models.ctc_decoding import ctc_prefix_beam_search, ctc_greedy_decode
 from models.utils import compute_wer_metrics
 from utils.I_data_preparation.text_transform import CTCTextTransform
 
-try:
-    import editdistance
-except ImportError:  # pragma: no cover - editdistance is a project dependency
-    editdistance = None
+DEFAULT_BEAM_WIDTH=[5, 10, 25]
+DEFAULT_TEMPERATURES=[1.0, 1.3, 1.6, 2.0]
+DEFAULT_BLANK_PENALTIES=[0.0, 1.0, 2.0]
+DEFAULT_LENGTH_BONUSES=[0.0, 0.5, 1.0]
 
 
-# ----------------------------------------------------------------------------- #
-# Offline text mapper (rebuilt from the dump metadata, no data pipeline needed)
-# ----------------------------------------------------------------------------- #
 class OfflineCTCMapper:
     """Minimal token<->text mapper reconstructed from a dump's ``.meta.json``.
 
@@ -294,6 +292,8 @@ def evaluate_combo(
             "balanced_wer": round(rec_metrics["balanced_wer"], 4),
             "cer": round(rec_metrics["cer"], 4),
             "balanced_cer": round(rec_metrics["balanced_cer"], 4),
+            "vocab_wer": round(rec_metrics["vocab_wer"], 4),
+            "balanced_vocab_wer": round(rec_metrics["balanced_vocab_wer"], 4),
             "cls_accuracy": round(acc, 4),
             "cls_balanced_accuracy": round(bal_acc, 4),
             "empty_rate": round(empty_rate, 4),
@@ -339,6 +339,7 @@ def write_csv(rows: List[dict], out_path: Path) -> None:
     fieldnames = [
         "decode", "beam_width", "temperature", "blank_penalty", "length_bonus",
         "n_samples", "wer", "balanced_wer", "cer", "balanced_cer",
+        "vocab_wer", "balanced_vocab_wer",
         "cls_accuracy", "cls_balanced_accuracy", "empty_rate",
     ]
     with out_path.open("w", newline="") as f:
@@ -380,10 +381,10 @@ def main():
                     help="Dump .npz files, directories to search, or globs (*_logprobs.npz).")
     ap.add_argument("--out", type=Path, required=True, help="Output CSV path.")
 
-    ap.add_argument("--beam_widths", nargs="+", type=int, default=[5, 10, 25])
-    ap.add_argument("--temperatures", nargs="+", type=float, default=[1.0, 1.3, 1.6, 2.0])
-    ap.add_argument("--blank_penalties", nargs="+", type=float, default=[0.0, 1.0, 2.0])
-    ap.add_argument("--length_bonuses", nargs="+", type=float, default=[0.0, 0.5, 1.0])
+    ap.add_argument("--beam_widths", nargs="+", type=int, default=DEFAULT_BEAM_WIDTH)
+    ap.add_argument("--temperatures", nargs="+", type=float, default=DEFAULT_TEMPERATURES)
+    ap.add_argument("--blank_penalties", nargs="+", type=float, default=DEFAULT_BLANK_PENALTIES)
+    ap.add_argument("--length_bonuses", nargs="+", type=float, default=DEFAULT_LENGTH_BONUSES)
 
     ap.add_argument("--no_greedy", dest="include_greedy", action="store_false",
                     help="Skip the greedy baseline row (included by default).")

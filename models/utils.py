@@ -91,11 +91,28 @@ def compute_wer_metrics(y_true, y_pred, verbose: bool = True):
     balanced_wer = float(np.mean([jiwer.wer(refs, hyps) for refs, hyps in groups.values()]))
     balanced_cer = float(np.mean([jiwer.cer(refs, hyps) for refs, hyps in groups.values()]))
 
+    # Vocabulary-constrained variants: score against the words appearing in all
+    # the sentences, not only those of the reference of each utterance.
+    vocab = build_word_vocabulary(y_true) if vocabulary is None else tuple(vocabulary)
+    y_pred_snapped = snap_texts_to_vocabulary(y_pred, vocab)
+    vocab_wer = float(jiwer.wer(y_true, y_pred_snapped))
+    snapped_groups = {}
+    for ref, hyp in zip(y_true, y_pred_snapped):
+        snapped_groups.setdefault(ref, ([], []))
+        snapped_groups[ref][0].append(ref)
+        snapped_groups[ref][1].append(hyp)
+    balanced_vocab_wer = float(
+        np.mean([jiwer.wer(refs, hyps) for refs, hyps in snapped_groups.values()])
+    )
+
     metrics = {
         "wer": wer,
         "balanced_wer": balanced_wer,
         "cer": cer,
         "balanced_cer": balanced_cer,
+        "vocab_wer": vocab_wer,
+        "balanced_vocab_wer": balanced_vocab_wer,
+        "vocab_size": int(len(vocab)),
         "n_samples": int(len(y_true)),
     }
 
@@ -103,6 +120,10 @@ def compute_wer_metrics(y_true, y_pred, verbose: bool = True):
         print("\n=== Test Metrics (recognition) ===")
         print(f"{'WER':<15}: UNBALANCED {wer:6.4f}  - BALANCED {balanced_wer:6.4f}")
         print(f"{'CER':<15}: UNBALANCED {cer:6.4f}  - BALANCED {balanced_cer:6.4f}")
+        print(
+            f"{'WER (vocab)':<15}: UNBALANCED {vocab_wer:6.4f}  - BALANCED {balanced_vocab_wer:6.4f}"
+            f"   [vocab={len(vocab)} words]"
+        )
 
     return metrics, y_true, y_pred
 
