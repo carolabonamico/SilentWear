@@ -42,7 +42,9 @@ from utils.I_data_preparation.experimental_config import (
 SESSION_RE = re.compile(r"sess_(\d+)")
 
 
-#################################### Utils for Data Preparation ######################################
+# ---------------------------------------------------------------------------
+# Utils for Data Preparation
+# ---------------------------------------------------------------------------
 
 
 def feature_names_to_consider(
@@ -110,7 +112,9 @@ def reorder_ml_features_by_channel(cols: List[str], channel_order: List[int]) ->
     return [col for _, col in parsed_sorted]
 
 
-#################################### Utils to override configs ######################################
+# ---------------------------------------------------------------------------
+# Utils to override configs
+# ---------------------------------------------------------------------------
 
 
 def deep_update(d: dict, u: dict) -> dict:
@@ -123,7 +127,9 @@ def deep_update(d: dict, u: dict) -> dict:
     return d
 
 
-#################### Utils to Keep Track of Runs ##############################
+# ---------------------------------------------------------------------------
+# Utils to Keep Track of Runs
+# ---------------------------------------------------------------------------
 
 
 def mark_running(run_dir: Path, meta: dict):
@@ -157,7 +163,9 @@ def should_skip(run_dir: Path, *, rerun_failed=False, rerun_running=False) -> bo
     return False
 
 
-#################### Utils for data loading ################################
+# ---------------------------------------------------------------------------
+# Utils for data loading
+# ---------------------------------------------------------------------------
 
 
 ## TO-DO: check which functions use this and replace with load_function in utils/general_utils.py
@@ -170,6 +178,11 @@ def dump_yaml(obj: dict, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         yaml.safe_dump(obj, f, sort_keys=False)
+
+
+# ---------------------------------------------------------------------------
+# Dataset directories and splits
+# ---------------------------------------------------------------------------
 
 
 def build_wins_feats_dirs(
@@ -282,7 +295,10 @@ def training_rows_with_augmentation(
     return candidate_df
 
 
-#################### Utils for input data normalization ######################
+# ---------------------------------------------------------------------------
+# Utils for input data normalization
+# ---------------------------------------------------------------------------
+
 
 # Key of the fallback statistics, computed over the whole training split. Used
 # for groups (subjects) that appear at test time but not in the training split.
@@ -590,6 +606,11 @@ def save_normalization_stats(
     with open(out_path, "w") as f:
         json.dump(stats, f, indent=2, sort_keys=True)
     print(f"[NORMALIZATION] statistics -> {out_path}")
+
+
+# ---------------------------------------------------------------------------
+# Seeding and session discovery
+# ---------------------------------------------------------------------------
 
 
 def reset_all_seeds():

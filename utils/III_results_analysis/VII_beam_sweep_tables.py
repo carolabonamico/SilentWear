@@ -62,12 +62,19 @@ RECOGNITION_METRICS = [
 ]
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Parallel per-fold decoding
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 _POOL_SEQS: List[np.ndarray] = []
 _POOL_COMBO: Optional[DecodeCombo] = None
 _POOL_BLANK: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Decoding pool
+# ---------------------------------------------------------------------------
 
 
 def _pool_decode(idx: int) -> List[int]:
@@ -87,9 +94,11 @@ def _decode_fold(seqs: List[np.ndarray], combo: DecodeCombo, blank_id: int, jobs
     return [_decode_seq(s, combo, blank_id) for s in seqs]
 
 
-# --------------------------------------------------------------------------- #
-# Run discovery (keyed on the per-fold *_logprobs.npz dumps instead of cv_summary.csv)
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# Run discovery
+# ---------------------------------------------------------------------------
+
+
 def _fold_dumps(run_path: Path) -> List[Path]:
     """Sorted per-fold log-prob dumps under a single model_<k> folder."""
     return sorted(run_path.glob("*logprobs*.npz"))
@@ -132,9 +141,11 @@ def _latest_model_run(folder: Path) -> Optional[str]:
     return sorted(ks)[-1][1] if ks else None
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Best-beam-config selection from beam_sweep_<experiment>.csv
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 def _metric_maximize(metric: str) -> bool:
     """accuracy-like metrics are maximised; wer/cer/empty_rate minimised."""
     return "accuracy" in metric or "acc" in metric
@@ -168,9 +179,11 @@ def _best_beam_from_csv(sweep_csv: Path, metric: str) -> DecodeCombo:
     return combo
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Per-fold scoring
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 def _score_fold(
     fold_file: Path, combo: DecodeCombo, task: str, jobs: int,
     dump_pred_path: Optional[Path] = None,
@@ -252,9 +265,11 @@ def _dump_predictions(path: Path, task: str, mapper: OfflineCTCMapper, labels, h
         writer.writerows(rows)
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Table building
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 def _pct(vals: np.ndarray) -> str:
     return f"{np.round(np.mean(vals) * 100, 1)}±{np.round(np.std(vals) * 100, 1)}"
 
@@ -335,14 +350,16 @@ def build_table(
             all_row["mean_std_perc"] = f"{np.round(means.mean()*100, 2)}±{np.round(means.std()*100, 2)}"
         df = pd.concat([df, pd.DataFrame([all_row])], ignore_index=True)
 
+    # Record the decode used so the table is self-describing.
     df["decode"] = combo.decode
     df["decode_config"] = combo.label()
     return df
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # CLI
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
 def _detect_task(artifacts_dir: Path, experiment: str) -> str:
     """Read the 'task' field from any fold meta under the artifacts root."""
     for meta in (artifacts_dir / "models" / experiment).rglob("*logprobs*.meta.json"):

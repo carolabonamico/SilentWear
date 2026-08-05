@@ -21,10 +21,20 @@ from utils.I_data_preparation.experimental_config import FS
 from fig_config import channel_colors, neckband_ch_order
 
 
-###### PLOT IN THE PAPER: subject 4
+# ---------------------------------------------------------------------------
+# User-editable settings
+# ---------------------------------------------------------------------------
+
+
+# PLOT IN THE PAPER: subject 4
 subject_to_consider = "S04"
 main_data_dire_folder = Path("/scratch2/gspacone/DATA_DIR_SILENT")
 save_fig_path = Path("/home/gspacone/Desktop/Silentwear/artifacts/figures")
+
+
+# ---------------------------------------------------------------------------
+# Data helpers
+# ---------------------------------------------------------------------------
 
 
 def find_all_processed_h5(main_data_dire_folder, subject):
@@ -52,6 +62,11 @@ def short_labels(cols):
         m = re.search(r"Ch_(\d+)", c)
         out.append(f"CH{int(m.group(1))}" if m else c)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Figure
+# ---------------------------------------------------------------------------
 
 
 def plot_stacked_channels_in_cell(ax, df_seg, ch_cols, fs, spacing, ylims, alpha=1.0, lw=1.0, channel_colors=None):
@@ -294,6 +309,11 @@ def plot_words_grid_all_channels(
             transparent=True,
         )
     return fig, axs
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics
+# ---------------------------------------------------------------------------
 
 
 def check_word_bounderies(emg_word):

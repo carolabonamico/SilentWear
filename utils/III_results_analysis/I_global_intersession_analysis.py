@@ -71,7 +71,9 @@ from utils.III_results_analysis.general_utils import build_twin_axis_blocks
 
 CM_LABEL_MODE = "both"   # "text", "code", or "both"
 
-# ----------------------------- helpers -----------------------------
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -191,6 +193,11 @@ def _find_runs(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Confusion matrices
+# ---------------------------------------------------------------------------
+
+
 def _parse_cm_cell(x) -> np.ndarray:
     """
     confusion matrix cell might be:
@@ -218,6 +225,11 @@ def mean_std_confusion_matrices(series: pd.Series) -> Tuple[np.ndarray, np.ndarr
     mats = [_parse_cm_cell(v) for v in series.values]
     stack = np.stack(mats, axis=0)  # [fold, i, j]
     return stack.mean(axis=0), stack.std(axis=0)
+
+
+# ---------------------------------------------------------------------------
+# Task, metrics and labels
+# ---------------------------------------------------------------------------
 
 
 def _read_label_mode_from_run_cfg(run_cfg_path: Path) -> str:
@@ -266,7 +278,9 @@ def _make_cm_labels(n_classes: int, mode: str, label_mode: str = "text") -> list
             labels.append(f"{i} {text}")
     return labels
 
-# ----------------------------- main analysis -----------------------------
+# ---------------------------------------------------------------------------
+# Main analysis
+# ---------------------------------------------------------------------------
 
 
 def main():

@@ -47,6 +47,11 @@ _VARIANT_STYLES_DEFAULT: Dict[str, Dict[str, Any]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Data collection
+# ---------------------------------------------------------------------------
+
+
 def _parse_run_label(run_label: Optional[str]) -> dict:
     """Parses the run_label to extract augmentation parameters."""
     if run_label is None:
@@ -151,6 +156,11 @@ def collect_ablation_data(
         ),
     )
     return df_res.drop_duplicates(subset=subset, keep="last")
+
+
+# ---------------------------------------------------------------------------
+# Plots
+# ---------------------------------------------------------------------------
 
 
 def _build_variant_styles(variant_order: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -320,6 +330,11 @@ def plot_data_augmentation(
             dpi=300,
         )
         plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def main():

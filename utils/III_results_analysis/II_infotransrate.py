@@ -35,7 +35,9 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, FixedLocator
 
 
-# ----------------------------- helpers -----------------------------
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -149,6 +151,11 @@ def _find_runs(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Information transfer rate
+# ---------------------------------------------------------------------------
+
+
 def _compute_itr(M: int, T: float, P: float) -> float:
     """
     ITR in bit/min. M classes, T seconds per decision, P accuracy in [0,1].
@@ -168,6 +175,11 @@ def _compute_itr(M: int, T: float, P: float) -> float:
     b = P * np.log2(P)
     c = (1.0 - P) * np.log2((1.0 - P) / (M - 1))
     return float(60.0 * (a + b + c) / T)
+
+
+# ---------------------------------------------------------------------------
+# Plots
+# ---------------------------------------------------------------------------
 
 
 def _plot_subjects_plus_average_single_box(
@@ -333,7 +345,9 @@ def _plot_subjects_plus_average_single_box(
     return fig
 
 
-# ----------------------------- main -----------------------------
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 
 def main():

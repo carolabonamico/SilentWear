@@ -23,6 +23,7 @@ ENGLISH_ALPHABET = list("abcdefghijklmnopqrstuvwxyz ")
 
 class CTCTextTransform:
     """Utility class for text transformation, handling character-level tokenization and cleaning."""
+
     def __init__(
         self,
         vocab_texts: Iterable[str],

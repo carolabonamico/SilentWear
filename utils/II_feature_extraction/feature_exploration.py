@@ -34,7 +34,11 @@ from utils.I_data_preparation.experimental_config import (
 )
 
 
-# ============= USER_EDITABLE PART =============================================
+# ---------------------------------------------------------------------------
+# User-editable settings
+# ---------------------------------------------------------------------------
+
+
 sub_ids = ["S01", "S02", "S03"]  # add as many users as you want
 main_data_directory = Path(
     r"path/to/your/data"
@@ -52,7 +56,11 @@ extract_tsne = False
 consider_time_feats = True
 consider_freq_feats = True
 consider_wavelet_feats = True
-# ============= USER_EDITABLE PART =============================================
+
+
+# ---------------------------------------------------------------------------
+# Session feature analyzer
+# ---------------------------------------------------------------------------
 
 
 class Session_Feature_Analyzer:

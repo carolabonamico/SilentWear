@@ -28,6 +28,11 @@ import torch.nn as nn
 from utils.I_data_preparation.experimental_config import FS, get_active_labels, build_label_maps
 
 
+# ---------------------------------------------------------------------------
+# Classification metrics
+# ---------------------------------------------------------------------------
+
+
 def compute_metrics(y_true, y_pred):
     """
     Docstring for compute_metrics
@@ -128,6 +133,11 @@ def compute_wer_metrics(y_true, y_pred, verbose: bool = True):
     return metrics, y_true, y_pred
 
 
+# ---------------------------------------------------------------------------
+# Model size and cost
+# ---------------------------------------------------------------------------
+
+
 def count_params(model: nn.Module) -> Tuple[int, int]:
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -212,6 +222,11 @@ def conv_input_shape(model: nn.Module, example_input: torch.Tensor) -> Optional[
             model.train()
 
     return captured.get("shape")
+
+
+# ---------------------------------------------------------------------------
+# Checkpoints and architecture info
+# ---------------------------------------------------------------------------
 
 
 def check_weights_updated(before_state_dict: dict, model_after: nn.Module) -> bool:

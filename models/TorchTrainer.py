@@ -26,6 +26,11 @@ from models.strategies import TaskStrategy, CTCStrategy, CTCRecognitionStrategy
 DEFAULT_EARLY_STOP_PATIENCE = 5  # default value if not specified in train_cfg
 
 
+# ---------------------------------------------------------------------------
+# Trainer
+# ---------------------------------------------------------------------------
+
+
 class TorchTrainer:
     def __init__(self, estimator, df_train, df_val, df_test, train_cfg, label_col,
                  strategy: TaskStrategy, train_label_map: Optional[Dict[int, str]] = None):
@@ -514,7 +519,9 @@ class TorchTrainer:
         print("Split integrity check complete.\n")
 
 
-################################################### Standalone functions ########################
+# ---------------------------------------------------------------------------
+# CTC dumps and prediction files
+# ---------------------------------------------------------------------------
 
 
 def _dump_ctc_logprobs(
@@ -622,6 +629,11 @@ def _write_pred_txt(
         writer.writerows(rows)
 
     print(f"[PRED] per-sample predictions ({task}) -> {pred_txt_path} (+ .csv)")
+
+
+# ---------------------------------------------------------------------------
+# Evaluation
+# ---------------------------------------------------------------------------
 
 
 def _label_ints_to_texts(mapper, label_ints) -> List[str]:

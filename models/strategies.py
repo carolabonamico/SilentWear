@@ -18,6 +18,11 @@ from typing import List
 from models.ctc_decoding import ctc_prefix_beam_search
 
 
+# ---------------------------------------------------------------------------
+# Strategy interface
+# ---------------------------------------------------------------------------
+
+
 class TaskStrategy(ABC):
 
     @abstractmethod
@@ -48,6 +53,11 @@ class TaskStrategy(ABC):
         pass
 
 
+# ---------------------------------------------------------------------------
+# CE
+# ---------------------------------------------------------------------------
+
+
 class CrossEntropyStrategy(TaskStrategy):
     """Standard cross-entropy strategy for classification tasks."""
 
@@ -67,6 +77,11 @@ class CrossEntropyStrategy(TaskStrategy):
 
     def predict_labels(self, outputs, use_score_fallback: bool = True) -> np.ndarray:
         return self.greedy_decode(self._prepare_logits(outputs)).detach().cpu().numpy()
+
+
+# ---------------------------------------------------------------------------
+# CTC
+# ---------------------------------------------------------------------------
 
 
 class CTCStrategy(TaskStrategy):

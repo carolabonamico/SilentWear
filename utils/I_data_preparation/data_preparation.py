@@ -27,7 +27,11 @@ from I_data_preparation.experimental_config import (
     VOCALIZED_DIRNAME,
 )
 
-# ================ USER_EDITABLE =========================
+
+# ---------------------------------------------------------------------------
+# User-editable settings
+# ---------------------------------------------------------------------------
+
 
 DATA_DIRECTORY = Path(r"path/to/your/data")
 sub_ids = ["S01", "S02", "S03", "S04"]
@@ -44,7 +48,10 @@ PLI_CUTOFF = 50  # Frequency for PLI Filter
 
 plots = False  # Set to True if you want to display plots
 
-# ============================================================
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 if __name__ == "__main__":

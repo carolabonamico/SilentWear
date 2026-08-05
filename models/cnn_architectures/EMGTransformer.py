@@ -15,6 +15,11 @@ import torch.nn.functional as F
 from torch.nn.init import trunc_normal_
 
 
+# ---------------------------------------------------------------------------
+# Checkpoint loading
+# ---------------------------------------------------------------------------
+
+
 def load_checkpoint_state_dict(checkpoint_path: str) -> dict:
     """Load a checkpoint state-dict from torch or safetensors formats."""
     if checkpoint_path.endswith(".safetensors"):
@@ -34,6 +39,11 @@ def load_checkpoint_state_dict(checkpoint_path: str) -> dict:
             return payload["model_state_dict"]
         return payload
     raise TypeError(f"Unsupported checkpoint payload type: {type(payload)}")
+
+
+# ---------------------------------------------------------------------------
+# Building blocks
+# ---------------------------------------------------------------------------
 
 
 class LearnedRelativePositionalEmbedding(nn.Module):
@@ -255,6 +265,11 @@ class CustomAttentionBlock(nn.Module):
         src = self.norm1(src + self.dropout1(self.attn(src)))
         src = self.norm2(src + self.dropout2(self.mlp(src)))
         return src
+
+
+# ---------------------------------------------------------------------------
+# Model
+# ---------------------------------------------------------------------------
 
 
 class EMGTransformer(nn.Module):

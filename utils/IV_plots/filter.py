@@ -15,6 +15,7 @@ from scipy.signal import butter, sosfiltfilt, filtfilt, iirnotch
 
 CONFIG_PATH = Path(__file__).parent / "config" / "plot_config.json"
 
+
 def apply_single_filter(data: np.ndarray, fs: float, filter_def: dict) -> np.ndarray:
     """Apply a single filter to the data based on the filter definition."""
     filter_type = filter_def["type"].lower()

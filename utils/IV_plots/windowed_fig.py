@@ -30,9 +30,9 @@ from extras.taper_fig import plot_stacked_channels_in_cell
 from extras.fig_config import channel_colors, neckband_ch_order
 
 
-# ----------------------------
-# Configuration
-# ----------------------------
+# ---------------------------------------------------------------------------
+# User-editable settings
+# ---------------------------------------------------------------------------
 
 
 wins_root = Path("path/to/wins_root")  # Update this to the actual path where the WIN_{window_ms} folders are located
@@ -50,9 +50,9 @@ exclude_words = {"rest"}
 ordered_cols = [f"Ch_{i}_filt" for i in neckband_ch_order]
 
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # Helper functions
-# ----------------------------
+# ---------------------------------------------------------------------------
 
 
 def _concat_windows(series):
@@ -114,9 +114,9 @@ def load_wins_df(h5_files, key="wins_feats"):
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # Plotting functions
-# ----------------------------
+# ---------------------------------------------------------------------------
 
 
 def _normalize_axes(axs, n_rows, n_cols):
@@ -238,9 +238,9 @@ def plot_windows_per_text(
     plt.close(fig)
 
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # Main
-# ----------------------------
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script to visualize windowed features.")

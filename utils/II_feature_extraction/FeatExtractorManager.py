@@ -16,6 +16,11 @@ from scipy.signal import welch
 import pywt
 
 
+# ---------------------------------------------------------------------------
+# Feature registry
+# ---------------------------------------------------------------------------
+
+
 class FeatureRegistry:
     """Central registry of all supported EMG features."""
 
@@ -61,6 +66,11 @@ class FeatureRegistry:
         invalid = [f for f in features if f not in cls.ALL]
         if invalid:
             raise ValueError(f"Invalid feature(s): {invalid}. Allowed features: {cls.ALL}")
+
+
+# ---------------------------------------------------------------------------
+# Feature extractors
+# ---------------------------------------------------------------------------
 
 
 class TimeDomainFeatureExtractor:
@@ -193,6 +203,11 @@ class WaveletFeatureExtractor:
             "cD1m": float(np.mean(cD1)),
             "cD1s": float(np.std(cD1)),
         }
+
+
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
 
 
 class FeatureExtractor:

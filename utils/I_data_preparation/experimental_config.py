@@ -12,9 +12,10 @@ from typing import Dict, Tuple
 
 FS = 500
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # Canonical dataset folder names
-# -----------------------------
+# ---------------------------------------------------------------------------
+
 # These names must match the Hugging Face release layout documented in the README.
 # Every module that needs to read/write these folders must import these constants.
 RAW_DIRNAME = "raw"                                 # unfiltered .bio recordings (only present for self-collected data)
@@ -24,9 +25,9 @@ WINDOW_DIR_PREFIX = "WIN_"                          # per-window-size subfolder 
 SILENT_DIRNAME = "silent"
 VOCALIZED_DIRNAME = "vocalized"
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # Label mappings
-# -----------------------------
+# ---------------------------------------------------------------------------
 
 ORIGINAL_LABELS_WORDS = {
     0: "rest",
@@ -83,11 +84,13 @@ ORIGINAL_LABELS_SENTENCES = {
     20: "start the mission"
 }
 
+
 def get_active_labels(mode: str = "word") -> Dict[int, str]:
     """Returns the active labels based on the mode."""
     if mode == "sentence":
         return ORIGINAL_LABELS_SENTENCES.copy()
     return ORIGINAL_LABELS_WORDS.copy()
+
 
 def build_label_maps(
     label_mode: str = "word", include_rest: bool = True

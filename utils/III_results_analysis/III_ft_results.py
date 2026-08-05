@@ -58,7 +58,9 @@ sys.path.insert(0, str(project_root))
 from utils.general_utils import open_file
 
 
-# ------------------------- small helpers -------------------------
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
 
 
 def _model_name_id_from_window_ms(win_ms: int) -> str:
@@ -96,7 +98,9 @@ def _ensure_sorted_by_x(summary_subject: dict) -> dict:
     return out
 
 
-# ------------------------- core loaders -------------------------
+# ---------------------------------------------------------------------------
+# Core loaders
+# ---------------------------------------------------------------------------
 
 
 def load_results(
@@ -245,7 +249,9 @@ def load_results(
     return summary_condition_across_subjects
 
 
-# ------------------------- tabulation -------------------------
+# ---------------------------------------------------------------------------
+# Tabulation
+# ---------------------------------------------------------------------------
 
 
 def summarize_subject_table(summary_condition_across_subjects, ft_id, condition):
@@ -363,7 +369,9 @@ def summary_to_csv(summary_ft, summary_baseline, res_save_folder, condition, mod
     return df_summary
 
 
-# ------------------------- alignment helpers for plotting -------------------------
+# ---------------------------------------------------------------------------
+# Alignment helpers for plotting
+# ---------------------------------------------------------------------------
 
 
 def _idx_for(s, x_target):
@@ -457,7 +465,9 @@ def prepare_aligned(ft_summary, scratch_summary, show_no_ft=True):
     return x, subject_ids, per_subj, info_ft, info_sc, avg
 
 
-# ------------------------- plotting -------------------------
+# ---------------------------------------------------------------------------
+# Plotting
+# ---------------------------------------------------------------------------
 
 
 def _slice_to_x(subj_dict, x_target):
@@ -687,7 +697,9 @@ def plot_subjs_and_avgs(ft_summary, scratch_summary, show_no_ft=True, save_path=
     return info_ft, info_sc
 
 
-# ------------------------- CLI main -------------------------
+# ---------------------------------------------------------------------------
+# CLI main
+# ---------------------------------------------------------------------------
 
 
 def main():
