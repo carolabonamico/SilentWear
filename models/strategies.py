@@ -1,3 +1,9 @@
+# Copyright ETH Zurich 2026
+# Licensed under Apache v2.0 see LICENSE for details.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
 """
 Defines task-specific strategies for computing loss and making predictions, such as CrossEntropy and CTC.
 """
