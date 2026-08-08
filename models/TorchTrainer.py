@@ -305,7 +305,7 @@ class TorchTrainer:
 
             # ----- Selection metric: WER/CER for recognition, else val loss -----
             if recog_strategy is not None:
-                val_metrics, _, _ = compute_wer_metrics(val_refs, val_hyps, verbose=False)
+                val_metrics, _, _ = compute_wer_metrics(val_refs, val_hyps, verbose=False, vocabulary=recog_strategy.word_vocabulary)
                 monitor = float(val_metrics[recog_strategy.primary_metric])
                 val_accuracy = float(np.mean([r == h for r, h in zip(val_refs, val_hyps)])) if val_refs else 0.0
                 metric_str = (
@@ -695,7 +695,7 @@ def evaluate_model(
             _write_pred_txt(pred_txt_path, "recognition", references, hypotheses, cls_outputs)
         if not references:
             return None, None, None
-        metrics, refs, hyps = compute_wer_metrics(references, hypotheses)
+        metrics, refs, hyps = compute_wer_metrics(references, hypotheses, vocabulary=strategy.word_vocabulary)
         return metrics, np.asarray(refs), np.asarray(hyps)
 
     all_targets = []

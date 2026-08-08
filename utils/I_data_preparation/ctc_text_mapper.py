@@ -79,9 +79,10 @@ class CTCTextMapper(CTCTextTransform):
         if not self.lexicon_texts:
             raise ValueError("CTC lexicon is empty after loading.")
 
-        # With use_full_alphabet the CTC token set is the fixed English alphabet
-        # (a-z + space), independent of the lexicon file; the lexicon is still used only
-        # to derive the reference/target texts (label -> text).
+        self.word_vocabulary = tuple(
+            sorted({word for text in self.lexicon_texts for word in text.split()})
+        )
+        
         super().__init__(
             vocab_texts=self.lexicon_texts,
             blank_id=self.blank_id,

@@ -366,8 +366,8 @@ def fit_normalization_stats(
     Returns
     -------
     dict
-        ``{group: {column: {...}}}``, always including the ``GLOBAL_NORM_KEY``.
-        Each column dict carries its own ``method`` key, so the
+        ``{group: {column: {...}}}``, always including the ``GLOBAL_NORM_KEY``
+        fallback group. Each column dict carries its own ``method`` key, so the
         statistics describe how they must be applied.
     """
     if kind not in ("dl", "ml"):
@@ -560,6 +560,9 @@ def apply_datasets_normalization(
                                             default DEFAULT_NORM_PERCENTILE
     ``experiment.normalization_clip_sigma`` z-score clip in standard deviations,
                                             default 0 (disabled)
+
+    ``utils/II_feature_extraction/amplitude_percentile_analysis.py`` measures the
+    last two from a dataset.
 
     Must be called before ``remap_all_datasets()``, which drops ``subject_id``
     from the splits.

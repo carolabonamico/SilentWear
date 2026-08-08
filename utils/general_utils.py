@@ -20,7 +20,9 @@ from utils.I_data_preparation.experimental_config import (
     WINS_AND_FEATURES_DIRNAME,
 )
 
-######################################### SUBJECT CONFIGURATION CLASS #################################################
+# ---------------------------------------------------------------------------
+# Subject configuration class
+# ---------------------------------------------------------------------------
 
 
 class SubjectConfig:
@@ -42,6 +44,8 @@ class SubjectConfig:
         self.wins_and_feats_dir = self.data_directory / self.wins_and_features_dirname / self.subject_id
 
         self.window_size_s = cfg["window"]["window_size_s"]
+        self.window_alignment = str(cfg["window"].get("alignment", "cue")).strip().lower()
+        self.onset_detection = cfg.get("onset_detection") or {}
         self.data_augmentation = cfg.get("data_augmentation")
         self.label_mode = str(cfg.get("label_mode", "word")).strip().lower()
 
@@ -51,10 +55,13 @@ class SubjectConfig:
         self.save_wins_and_feats = cfg["save_wins_and_feats"]
 
 
-######################################### LOADING UTILS #################################################
+# ---------------------------------------------------------------------------
+# Loading utils
+# ---------------------------------------------------------------------------
 
 
-### TO-DO: remove these functions, fix scripts using them using open_file (added later)
+# TO-DO: remove these functions, fix scripts using them using open_file (added later)
+
 def load_yaml_config(config_path: Path = Path("config.yaml")) -> dict:
     with open((config_path), "r") as f:
         cfg = yaml.safe_load(f)
@@ -92,6 +99,11 @@ def open_file(file_path: Path) -> Any:
 
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
+
+
+# ---------------------------------------------------------------------------
+# Dataset loading
+# ---------------------------------------------------------------------------
 
 
 def load_all_h5files_from_folder(
@@ -181,7 +193,9 @@ def load_subjects_data(
     return df
 
 
-######################################### Datasets UTILS #################################################
+# ---------------------------------------------------------------------------
+# Datasets utils
+# ---------------------------------------------------------------------------
 
 
 def print_dataset_summary_statistics(df: pd.DataFrame) -> None:

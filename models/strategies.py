@@ -133,6 +133,16 @@ class CTCStrategy(TaskStrategy):
         }
         self._ctc_len_warned = False
 
+    @property
+    def word_vocabulary(self) -> tuple:
+        """Closed word vocabulary of the task: the words of all the lexicon texts.
+
+        Passed to `compute_wer_metrics` so the vocabulary-constrained WER snaps
+        each hypothesis word onto the lexicon's word set, independently of which
+        utterances a given evaluation split contains.
+        """
+        return self.text_mapper.word_vocabulary
+
     def _warn_if_targets_too_long(self, target_lengths: torch.Tensor, time_steps: int) -> None:
         """Surface samples that CTC cannot align (target longer than input frames).
 

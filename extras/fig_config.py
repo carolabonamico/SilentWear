@@ -6,6 +6,10 @@
 
 """Configuration for figure generation."""
 
+ADS1298_LSB_UV = 2 * 2.4 / (6 * 2 ** 24) * 1e6       # 0.0476837 uV per code
+BIO_FILE_LSB = 4e6 / 2 ** 23                         # 0.476837, measured
+RAW_TO_UV = ADS1298_LSB_UV / BIO_FILE_LSB            # = 0.1
+
 channel_colors = [
     # Blue pair
     "#1f77b4",  # CH0

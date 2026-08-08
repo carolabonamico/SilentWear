@@ -46,6 +46,8 @@ label_mode = "word"                    # "word" | "sentence"
 process_all = False                    # Set to True to ignore target_session and target_batch and process all available data for the subject and window size
 output_ext = "png"
 exclude_words = {"rest"}
+amp_ref = None                         # Set to None to derive the vertical scale from the plotted data, or fix it with --amp_ref (see parse_amp_ref)
+amp_percentile = 92                    # Percentile of |x| the derived vertical scale is built from (see build_spacing_map)
 
 ordered_cols = [f"Ch_{i}_filt" for i in neckband_ch_order]
 
@@ -61,6 +63,59 @@ def _concat_windows(series):
     if len(arrays) == 0:
         return np.array([])
     return np.concatenate(arrays)
+
+
+def parse_amp_ref(tokens):
+    """
+    Parses the --amp_ref tokens into {"default": float|None, "per_cond": {cond: float}}.
+    """
+    if not tokens:
+        return None
+    spec = {"default": None, "per_cond": {}}
+    for token in tokens:
+        if "=" in token:
+            cond, _, value = token.partition("=")
+            spec["per_cond"][cond.strip()] = float(value)
+        else:
+            spec["default"] = float(token)
+    return spec
+
+
+def build_spacing_map(df_batch, conditions_list, ch_cols, amp_ref_spec=None, percentile=amp_percentile, spacing_factor=10, margin_factor=2):
+    """
+    Builds the per-condition vertical scale used by every cell of the figure.
+    """
+    global_spacing_map = {}
+
+    for cond in conditions_list:
+        fixed = None
+        if amp_ref_spec is not None:
+            fixed = amp_ref_spec["per_cond"].get(cond, amp_ref_spec["default"])
+
+        if fixed is not None:
+            amp_ref_cond = float(fixed)
+            print(f"  amp_ref[{cond}] = {amp_ref_cond:.4f} (fixed)")
+        else:
+            df_cond = df_batch[df_batch["condition"] == cond]
+            all_signals = []
+            for col in ch_cols:
+                flat_signal = _concat_windows(df_cond[col])
+                if len(flat_signal) > 0:
+                    all_signals.append(flat_signal)
+
+            if all_signals:
+                amp_ref_cond = float(np.nanpercentile(np.abs(np.concatenate(all_signals)), percentile))
+            else:
+                amp_ref_cond = 0.0
+            print(f"  amp_ref[{cond}] = {amp_ref_cond:.4f} (derived, p{percentile:g}; pass --amp_ref {cond}={amp_ref_cond:.4f} to reuse it)")
+
+        spacing = spacing_factor * amp_ref_cond if amp_ref_cond > 0 else 1.0
+        n_ch = len(ch_cols)
+        ylims = (-margin_factor * spacing, (n_ch - 1) * spacing + margin_factor * spacing)
+
+        global_spacing_map[cond] = {"spacing": spacing, "ylims": ylims}
+
+    return global_spacing_map
 
 
 def find_wins_h5(wins_root_dir, subject, win_ms, conditions_list=None, target_sessions=None, target_batches=None):
@@ -259,8 +314,23 @@ if __name__ == "__main__":
     parser.add_argument("--label_mode", type=str, default=label_mode, choices=["word", "sentence"], help="Label mode: 'word' or 'sentence'.")
     parser.add_argument("--output_ext", type=str, default=output_ext, help="Extension of the saved figure.")
     parser.add_argument("--process_all", action="store_true", default=process_all, help="Ignore targets and process all available data.")
-    
+    parser.add_argument(
+        "--amp_ref", nargs="*", default=amp_ref,
+        help="Fix the vertical scale instead of deriving it from the plotted windows. "
+             "Either one number for every condition, or 'condition=number' pairs "
+             "(e.g. --amp_ref vocalized=362.0876 silent=366.2839). The number is the "
+             "percentile of |x| that the channel spacing is built from, so passing "
+             "the value another run printed makes the two figures share one scale.",
+    )
+    parser.add_argument(
+        "--amp_percentile", type=float, default=amp_percentile,
+        help="Percentile of |x| the derived vertical scale is built from (default: %(default)g). "
+             "Raise it to draw the traces smaller. Ignored for conditions pinned with --amp_ref.",
+    )
+
     args = parser.parse_args()
+
+    amp_ref_spec = parse_amp_ref(args.amp_ref)
 
     if args.process_all:
         sessions_to_process = [None]
@@ -332,33 +402,19 @@ if __name__ == "__main__":
                             print(f"Generating plots for Session: {actual_sess_str} | Batch: {actual_batch_str}")
 
                             ch_cols = [col for col in ordered_cols if col in df_batch.columns]
-                            
-                            spacing_factor = 10
-                            margin_factor = 2
-                            global_spacing_map = {}
-                            
-                            for cond in conditions_list:
-                                df_cond = df_batch[df_batch["condition"] == cond]
-                                all_signals = []
-                                for col in ch_cols:
-                                    flat_signal = _concat_windows(df_cond[col])
-                                    if len(flat_signal) > 0:
-                                        all_signals.append(flat_signal)
-                                
-                                if all_signals:
-                                    X_all = np.concatenate(all_signals)
-                                    amp_ref = float(np.nanpercentile(np.abs(X_all), 95))
-                                    spacing = spacing_factor * amp_ref if amp_ref > 0 else 1.0
-                                else:
-                                    spacing = 1.0
-                                    
-                                n_ch = len(ch_cols)
-                                ylims = (-margin_factor * spacing, (n_ch - 1) * spacing + margin_factor * spacing)
-                                
-                                global_spacing_map[cond] = {
-                                    "spacing": spacing,
-                                    "ylims": ylims
-                                }
+                            df_scale = df_batch[~df_batch["Label_str"].isin(exclude_words)]
+
+                            if df_scale.empty:
+                                print(f"Only excluded labels for Session: {actual_sess_str} | Batch: {actual_batch_str}. Skipping...")
+                                continue
+
+                            global_spacing_map = build_spacing_map(
+                                df_batch=df_scale,
+                                conditions_list=conditions_list,
+                                ch_cols=ch_cols,
+                                amp_ref_spec=amp_ref_spec,
+                                percentile=args.amp_percentile,
+                            )
 
                             active_labels = get_active_labels(args.label_mode)
                             ordered_texts = [active_labels[i] for i in sorted(active_labels.keys())]

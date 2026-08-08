@@ -13,8 +13,19 @@ Per-subject result tables at the best-beam CTC decode.
 This is the beam-search counterpart of
 ``utils/III_results_analysis/I_global_intersession_analysis.py``.
 
-This script re-decodes the same cached per-fold dumps and
-emits the exact same per-subject/condition table as I_global_intersession, but
+Why a separate script
+---------------------
+``I_global_intersession_analysis.py`` builds its per-subject/condition tables from
+``cv_summary.csv``, whose metrics were computed at training time with the decode
+baked into the config -- ``decode_strategy: greedy`` for the beam-sweep runs. So
+those tables are locked to greedy and can never show a beam operating point.
+
+``offline_experiments/VII_beam_sweep.py`` sweeps the decode parameters over the cached
+per-fold log-probs, but only reports **pooled** aggregate metrics (one number over
+all samples), with no per-subject breakdown.
+
+This script combines the two: it re-decodes the same cached per-fold dumps and
+emits the **exact same per-subject/condition table** as I_global_intersession, but
 for the beam configuration that scored best in ``beam_sweep_<experiment>.csv`` --
 with no retraining. Recognition runs produce a WER/CER table, classification runs a
 balanced-accuracy table, matching the original format and file naming (with a
@@ -197,7 +208,7 @@ def _score_fold(
 
     if task == "recognition":
         refs = mapper.label_int_to_texts(labels.tolist())
-        m, _, _ = compute_wer_metrics(refs, hyps, verbose=False)
+        m, _, _ = compute_wer_metrics(refs, hyps, verbose=False, vocabulary=mapper.word_vocabulary)
         out = {k: float(m[k]) for k in RECOGNITION_METRICS}
     else:
         preds = np.asarray(mapper.texts_to_label_int(hyps, allow_nearest=True), dtype=np.int64)
@@ -221,8 +232,8 @@ def _score_fold(
 def _dump_predictions(path: Path, task: str, mapper: OfflineCTCMapper, labels, hyps: List[str]) -> None:
     """Per-sample dump (.txt + .csv).
 
-    Recognition writes ``index, reference, recognition_output``;
-    classification also writes ``classification_output``.
+    Task-aware columns: recognition writes ``index, reference, recognition_output``;
+    classification also writes ``classification_output`` (the predicted class text).
     """
     import csv as _csv
 
@@ -272,6 +283,24 @@ def _dump_predictions(path: Path, task: str, mapper: OfflineCTCMapper, labels, h
 
 def _pct(vals: np.ndarray) -> str:
     return f"{np.round(np.mean(vals) * 100, 1)}±{np.round(np.std(vals) * 100, 1)}"
+
+
+def _print_table(df: "pd.DataFrame", task: str, experiment: str, model_name: str,
+                 model_name_id: str, condition: str, combo: DecodeCombo) -> None:
+    """Print the per-subject table."""
+    print("\n" + "=" * 110)
+    print(
+        f"Experiment: {experiment} | Model: {model_name} | model_name_id: {model_name_id} "
+        f"| Condition: {condition} | Decode: {combo.label()}"
+    )
+    print("=" * 110)
+
+    if task == "recognition":
+        perc_cols = [f"{m}_mean_std_perc" for m in RECOGNITION_METRICS]
+    else:
+        perc_cols = ["mean_std_perc"]
+    print_cols = ["subject", "model_run"] + [c for c in perc_cols if c in df.columns]
+    print(df[print_cols].to_string())
 
 
 def build_table(
@@ -445,7 +474,8 @@ def main():
             out_csv = tables_dir / (
                 f"{args.model_name}_{model_run_tag}_{cond}_{args.model_name_id}_{args.experiment}_{decode_tag}.csv")
             df.to_csv(out_csv, index=False)
-            print(f"[SAVED] {out_csv}")
+            _print_table(df, task, args.experiment, args.model_name, args.model_name_id, cond, combo)
+            print(f"\n[SAVED] {out_csv}")
 
     print("\nDONE. Beam tables in:", tables_dir)
 

@@ -46,6 +46,8 @@ class SpeechNet(nn.Module):
         mfcc_cfg: Optional[Dict[str, Any]] = None,
         stft_cfg: Optional[Dict[str, Any]] = None,
         spec_augment: bool = False,
+        freq_mask_param: int = 8,
+        time_mask_param: int = 20,
         **kwargs,
     ):
         super().__init__()
@@ -75,9 +77,13 @@ class SpeechNet(nn.Module):
             in_ch = 1
 
         self.spec_augment = bool(spec_augment) and self.domain in ("mfcc", "stft")
+        self.freq_mask_param = int(freq_mask_param)
+        self.time_mask_param = int(time_mask_param)
         if self.spec_augment:
-            self.freq_mask = T_audio.FrequencyMasking(freq_mask_param=8)
-            self.time_mask = T_audio.TimeMasking(time_mask_param=20)
+            self.freq_mask = (T_audio.FrequencyMasking(freq_mask_param=self.freq_mask_param)
+                              if self.freq_mask_param > 0 else None)
+            self.time_mask = (T_audio.TimeMasking(time_mask_param=self.time_mask_param)
+                              if self.time_mask_param > 0 else None)
 
         # Convolutional blocks configuration
         if blocks_config is None:
@@ -164,8 +170,10 @@ class SpeechNet(nn.Module):
                 # Converts the power spectrogram to decibel (dB) scale
                 x = 10.0 * torch.log10(x + 1e-10)
             if self.spec_augment and self.training:
-                x = self.freq_mask(x)
-                x = self.time_mask(x)
+                if self.freq_mask is not None:
+                    x = self.freq_mask(x)
+                if self.time_mask is not None:
+                    x = self.time_mask(x)
         else:
             x = x[:, None]  # (B, 1, C, T)
 

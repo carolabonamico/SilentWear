@@ -78,8 +78,43 @@ def compute_metrics(y_true, y_pred):
     return metrics, y_true, y_pred
 
 
-def compute_wer_metrics(y_true, y_pred, verbose: bool = True):
-    """Compute recognition metrics (WER, CER) for the free-character CTC decoder."""
+# ---------------------------------------------------------------------------
+# Recognition metrics
+# ---------------------------------------------------------------------------
+
+
+def build_word_vocabulary(texts) -> Tuple[str, ...]:
+    """Vocabulary of every word appearing across *all* the given texts."""
+    return tuple(sorted({w for t in texts for w in str(t).split()}))
+
+
+def snap_texts_to_vocabulary(texts, vocabulary):
+    """Rewrite every word of `texts` as its nearest vocabulary word."""
+    import editdistance
+
+    vocab = tuple(vocabulary)
+    if not vocab:
+        return [str(t) for t in texts]
+
+    cache = {w: w for w in vocab}
+
+    def nearest(word: str) -> str:
+        hit = cache.get(word)
+        if hit is None:
+            hit = min(vocab, key=lambda cand: (editdistance.eval(word, cand), cand))
+            cache[word] = hit
+        return hit
+
+    return [" ".join(nearest(w) for w in str(t).split()) for t in texts]
+
+
+def compute_wer_metrics(y_true, y_pred, verbose: bool = True, vocabulary=None):
+    """Compute recognition metrics (WER, CER) for the free-character CTC decoder.
+
+    Used in place of accuracy/precision/recall/F1 when the model is decoded as a
+    free-character CTC recogniser. This is closed-set recognition scored by edit
+    distance.
+    """
     import jiwer
 
     wer = float(jiwer.wer(y_true, y_pred))
@@ -96,8 +131,6 @@ def compute_wer_metrics(y_true, y_pred, verbose: bool = True):
     balanced_wer = float(np.mean([jiwer.wer(refs, hyps) for refs, hyps in groups.values()]))
     balanced_cer = float(np.mean([jiwer.cer(refs, hyps) for refs, hyps in groups.values()]))
 
-    # Vocabulary-constrained variants: score against the words appearing in all
-    # the sentences, not only those of the reference of each utterance.
     vocab = build_word_vocabulary(y_true) if vocabulary is None else tuple(vocabulary)
     y_pred_snapped = snap_texts_to_vocabulary(y_pred, vocab)
     vocab_wer = float(jiwer.wer(y_true, y_pred_snapped))
@@ -213,7 +246,7 @@ def conv_input_shape(model: nn.Module, example_input: torch.Tensor) -> Optional[
     try:
         with torch.no_grad():
             model(example_input)
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover - never break a run over profiling
         print(f"[Conv input shape] skipped ({type(exc).__name__}: {exc}).")
         return None
     finally:

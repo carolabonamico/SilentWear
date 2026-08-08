@@ -141,7 +141,7 @@ class Global_Windower_and_Feature_Extractor:
                     h5_file_path=curr_h5_file,
                     window_size_s=self.win_size_sec,
                     manual_feature_extraction=self.manual_feature_extraction,
-                    data_augmentation=self.data_augmentation,         
+                    data_augmentation=self.data_augmentation,
                     num_subwindows=self.num_subwins,
                 )
 
