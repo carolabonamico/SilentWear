@@ -43,6 +43,7 @@ The HDF5 file must contain:
     - session_id
 """
 
+import numpy as np
 import pandas as pd
 from pathlib import Path
 import sys
@@ -59,6 +60,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from utils.I_data_preparation.experimental_config import FS, get_active_labels
 from utils.II_feature_extraction.FeatExtractorManager import FeatureExtractor
 from utils.I_data_preparation.read_bio_file import print_label_statistics
+from utils.I_data_preparation.onset_detection import (
+    OnsetConfig,
+    detect_events_in_dataframe,
+    label_boxes,
+    match_events_to_boxes,
+    rest_intervals_between_events,
+)
 
 
 class Single_Recording_Windower_and_Feature_Extractor:
@@ -70,11 +78,21 @@ class Single_Recording_Windower_and_Feature_Extractor:
         manual_feature_extraction: bool,
         data_augmentation: Optional[dict] = None,
         num_subwindows: Optional[int] = None,
+        alignment: str = "cue",
+        onset_detection: Optional[dict] = None,
     ) -> None:
         """Data windower and feature extractor operating on a single recording.
 
         Args:
             data_directory: main data directory for the current subject.
+            alignment: where each window starts. ``"cue"`` (default) anchors it at
+                the trigger transition, reproducing the historical behaviour;
+                ``"onset"`` anchors it at the speech onset found by
+                ``onset_detection`` without reading the trigger, which is what an
+                online system would do.
+            onset_detection: overrides for ``OnsetConfig``, plus the two
+                windowing-only keys ``unmatched`` ("drop" | "rest") and
+                ``rest_windows`` (bool).
         """
         self.data_directory = data_directory
         self.h5_file = h5_file_path
@@ -86,6 +104,22 @@ class Single_Recording_Windower_and_Feature_Extractor:
             self.num_subwin = num_subwindows
         else:
             self.num_subwin = None
+
+        self.alignment = str(alignment).strip().lower()
+        if self.alignment not in ("cue", "onset"):
+            raise ValueError(f"alignment must be 'cue' or 'onset', got {alignment!r}")
+
+        onset_cfg = dict(onset_detection or {})
+        self.onset_unmatched = str(onset_cfg.pop("unmatched", "drop")).strip().lower()
+        if self.onset_unmatched not in ("drop", "rest"):
+            raise ValueError(
+                f"onset_detection.unmatched must be 'drop' or 'rest', got {self.onset_unmatched!r}"
+            )
+        self.onset_rest_windows = bool(onset_cfg.pop("rest_windows", True))
+        self.onset_rest_per_gap = int(onset_cfg.pop("rest_windows_per_gap", 1))
+        if self.onset_rest_per_gap < 1:
+            raise ValueError("onset_detection.rest_windows_per_gap must be >= 1")
+        self.onset_config = OnsetConfig(**onset_cfg)
 
         self.feature_extractor = FeatureExtractor(fs=FS)
 
@@ -196,6 +230,97 @@ class Single_Recording_Windower_and_Feature_Extractor:
         # print("df.index example:", df.index[:10].to_list())
 
         return seg_valid
+
+    def _augmentation_margin_samples(self) -> int:
+        """Largest shift the augmentation will apply to a window start, in samples."""
+        aug = self.data_augmentation or {}
+        if str(aug.get("mode", "disabled")).lower() != "sliding_window":
+            return 0
+        stride_samples = int((aug.get("stride_ms", 10) * FS) / 1000)
+        return stride_samples * int(aug.get("num_strides", 10))
+
+    def find_text_segments_from_onsets(
+        self, df: pd.DataFrame, label_mode: str = "word"
+    ) -> pd.DataFrame:
+        """Segments defined by the onset detector instead of by the trigger."""
+        label_map = get_active_labels(label_mode)
+        events = detect_events_in_dataframe(df, self.onset_config)
+        boxes = label_boxes(df)
+        matches = match_events_to_boxes(
+            events, boxes, tolerance_s=self.onset_config.match_tolerance_s, fs=FS
+        )
+
+        rows = []
+        n_speech = 0
+        n_dropped = 0
+        n_fragments = 0
+        n_unmatched_as_rest = 0
+        claimed: set = set()
+        for event, box_idx in zip(events, matches):
+            if box_idx is None:
+                if self.onset_unmatched == "drop":
+                    n_dropped += 1
+                    continue
+                label_int = 0
+                n_unmatched_as_rest += 1
+            else:
+                if box_idx in claimed:
+                    n_fragments += 1
+                    continue
+                claimed.add(box_idx)
+                label_int = boxes[box_idx][2]
+                n_speech += 1
+            rows.append(
+                {
+                    "start_idx": int(event.onset),
+                    "end_idx": int(event.offset),
+                    "label_int": int(label_int),
+                    "label_str": label_map.get(int(label_int)),
+                    "run_len": int(event.duration_samples),
+                }
+            )
+
+        n_rest = 0
+        if self.onset_rest_windows:
+            window_samples = int(self.window_size_s * FS)
+            margin = self._augmentation_margin_samples()
+            min_rest_stride = int(0.2 * FS)
+            for gap_start, gap_stop in rest_intervals_between_events(
+                events, len(df), min_gap_samples=window_samples + 2 * margin
+            ):
+                first = gap_start + margin
+                last = gap_stop - margin - window_samples
+                if last < first:
+                    continue
+                n_here = max(1, min(self.onset_rest_per_gap, 1 + (last - first) // min_rest_stride))
+                if n_here == 1:
+                    starts = [(first + last) // 2]
+                else:
+                    starts = np.unique(np.linspace(first, last, n_here).astype(int))
+                for start in starts:
+                    rows.append(
+                        {
+                            "start_idx": int(start),
+                            "end_idx": int(start + window_samples),
+                            "label_int": 0,
+                            "label_str": label_map.get(0),
+                            "run_len": int(window_samples),
+                        }
+                    )
+                    n_rest += 1
+
+        print(
+            f"[ONSET] {len(events)} events -> {n_speech}/{len(boxes)} utterances "
+            f"({n_speech / max(1, len(boxes)):.0%} recovered), "
+            f"{n_fragments} mid-utterance fragments merged away, "
+            f"{n_dropped} unmatched dropped, {n_unmatched_as_rest} unmatched kept as rest, "
+            f"{n_rest} rest windows from gaps"
+        )
+        if not rows:
+            return pd.DataFrame(
+                columns=["start_idx", "end_idx", "label_int", "label_str", "run_len"]
+            )
+        return pd.DataFrame(rows).sort_values("start_idx").reset_index(drop=True)
 
     def extract_channel_features(
         self,
@@ -373,7 +498,13 @@ class Single_Recording_Windower_and_Feature_Extractor:
         df = df.reset_index(drop=True)
         print_label_statistics(df)
         # Find segments corresponding to each Text (or rest)
-        seg_df = self.find_text_segments_df(df, valid_vals=set(valid_labels), label_col="Label_int")
+        if self.alignment == "onset":
+            seg_df = self.find_text_segments_from_onsets(df, label_mode=label_mode)
+            seg_df = seg_df[seg_df["label_int"].isin(set(valid_labels))].reset_index(drop=True)
+        else:
+            seg_df = self.find_text_segments_df(
+                df, valid_vals=set(valid_labels), label_col="Label_int"
+            )
         df_wins_feats = self.extract_windows_and_features_from_df(df, seg_df)
         print(df_wins_feats)
         return df_wins_feats
