@@ -51,7 +51,7 @@ fi
 DATA_SENTENCES="${DATA_SENTENCES:-data_sentences}"
 # The word corpus of this thesis: 15 words + rest. The directory name records
 # the subject count of the first extraction and is not authoritative.
-DATA_WORDS="${DATA_WORDS:-data_new_words}"
+DATA_WORDS="${DATA_WORDS:-data_words}"
 # The published SilentWear corpus, for the baseline reproduction of Section 4.2.
 DATA_WORDS_PUBLISHED="${DATA_WORDS_PUBLISHED:-/baltic/users/ml_datasets/iis_bio_internal_datasets/2026_spacone_speech_classification_hmi}"
 
