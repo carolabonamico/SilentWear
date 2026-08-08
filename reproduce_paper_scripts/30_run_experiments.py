@@ -82,10 +82,21 @@ from offline_experiments.V_sessions_count_ablation import Session_Count_Ablation
 from offline_experiments.VI_data_augmentation_ablation import Data_Augmentation_Ablation_Trainer
 from offline_experiments.general_utils import discover_sessions
 
+
+# ---------------------------------------------------------------------------
+# Defaults
+# ---------------------------------------------------------------------------
+
+
 DEFAULT_EXPERIMENTS = ["global", "inter_session", "inter_session_ft", "train_from_scratch", "data_augmentation_ablation", "session_count_ablation"]
 DEFAULT_SUBJECTS = ["S01", "S02", "S03", "S04"]
 DEFAULT_CONDITIONS = ["silent", "vocalized"]
 AUGMENTATION_MODE_CHOICES = ["augmented_size", "original_size"]
+
+
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
 
 
 def _apply_open_release_overrides(base_cfg: dict, data_dir: Path, artifacts_dir: Path) -> dict:
@@ -143,6 +154,11 @@ def _expand_windows_s(vals: List[float], step: float) -> List[float]:
         out.append(round(end, 3))
 
     return out
+
+
+# ---------------------------------------------------------------------------
+# Experiment drivers
+# ---------------------------------------------------------------------------
 
 
 def _run_one_subject_condition(
@@ -283,6 +299,11 @@ def run_all_subjects(
         return
 
     raise ValueError(f"Experiment '{experiment}' does not support pooled mode via run_all_subjects.")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def main():
