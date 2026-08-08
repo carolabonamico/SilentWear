@@ -91,6 +91,8 @@ def main() -> None:
     ap.add_argument("--conditions", nargs="*", default=None)
     ap.add_argument("--t_high", type=float, default=None, help="Override OnsetConfig.t_high.")
     ap.add_argument("--t_low_ratio", type=float, default=None)
+    ap.add_argument("--topk", type=int, default=None,
+                    help="Override OnsetConfig.topk, the channels averaged per sample.")
     ap.add_argument("--out", type=Path, default=None, help="Write the per-recording table to CSV.")
     args = ap.parse_args()
 
@@ -99,6 +101,8 @@ def main() -> None:
         overrides["t_high"] = args.t_high
     if args.t_low_ratio is not None:
         overrides["t_low_ratio"] = args.t_low_ratio
+    if args.topk is not None:
+        overrides["topk"] = args.topk
     cfg = OnsetConfig(**overrides)
 
     files = discover(args.data_dir, args.processed, args.subjects, args.conditions)
