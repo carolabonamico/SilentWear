@@ -5,7 +5,8 @@
 #
 
 """
-Script to visualize windowed features for each text unit and condition in a grid layout, with consistent scaling across conditions.
+Script to visualize windowed features for each text unit and condition 
+in a grid layout, with consistent scaling across conditions.
 """
 
 
