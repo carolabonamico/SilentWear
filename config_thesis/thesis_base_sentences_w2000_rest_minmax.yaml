@@ -14,7 +14,7 @@
 # The model configuration is supplied separately, from
 # config_thesis/models_configs/.
 data:
-  data_directory: data_sentences/data_sentences_5_subjects_6_sessions   # Overridden by --data_dir
+  data_directory: data_sentences                                        # Overridden by --data_dir
   models_main_directory: ./artifacts_thesis                             # Overridden by --artifacts_dir
   subject_id: S01 S02 S03 S04 S05 S06 S07                               # Overridden by --subjects
 paths:

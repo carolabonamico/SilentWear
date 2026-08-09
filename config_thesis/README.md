@@ -56,7 +56,6 @@ comparable.
 | `thesis_base_words_w1400_rest.yaml` | 1.4 s | 15 words + rest | none |
 | `thesis_base_sentences_w2000_rest.yaml` | 2.0 s | 20 sentences + rest | none |
 | `thesis_base_sentences_w2000_norest.yaml` | 2.0 s | 20 sentences | none |
-| `thesis_base_sentences_w2400_norest.yaml` | 2.4 s | 20 sentences | none |
 | `thesis_base_sentences_w2000_rest_zscore.yaml` | 2.0 s | 20 + rest | z-score, clip 2.6 σ |
 | `thesis_base_sentences_w2000_rest_minmax.yaml` | 2.0 s | 20 + rest | percentile 2.5/97.5 |
 | `thesis_base_sentences_onset_w2000_norest.yaml` | 2.0 s | 20 sentences | none, trigger-free windows |

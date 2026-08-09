@@ -7,12 +7,14 @@
 #
 # `win_and_feats` deliberately differs from the cue-aligned config so that the
 # two datasets coexist and can be compared A/B with the same window length.
+# Every window length shares this root and is kept apart by its own WIN_<ms>
+# subfolder, so a second extraction at another --windows_s is additive.
 data:
-  data_directory: data_sentences/data_sentences_5_subjects_6_sessions
+  data_directory: data_sentences
   subject_id: S05   # Template default; overridden by 20_make_windows_and_features.py --subjects
 paths:
   processed: raw_and_processed
-  win_and_feats: wins_and_features
+  win_and_feats: wins_and_features_onset
 window:
   # 2.4 s covers the 95th percentile of utterance durations measured from the
   # detected onset. It costs rest windows, not speech: a rest window needs a gap

@@ -17,8 +17,9 @@ $PYTHON reproduce_paper_scripts/30_run_experiments.py \
     --base_config config_thesis/thesis_base_words_w1400_rest.yaml \
     --model_config config_thesis/models_configs/speechnet_baseline_words_ce.yaml \
     --data_dir "$DATA_WORDS" \
+    --window_config config_thesis/create_windows_words.yaml \
     --artifacts_dir "$ARTIFACTS_BASE/60_ablations/augmentation" \
-    --experiment augmentation_ablation \
+    --experiment data_augmentation_ablation \
     --subjects $SUBJECTS_3 --conditions $CONDITIONS \
     --aug_windows_s 1.4 --stride_ms 10 20 50 100 --num_strides 2 5 10
 
