@@ -22,4 +22,4 @@ train_and_analyse config_thesis/thesis_base_sentences_w2000_rest.yaml \
                   "$DATA_SENTENCES" "$ARTIFACTS_BASE/20_axis2_objective/sentences_stft_ctc_bilstm" \
                   speechnet 2.0 w2000ms
 
-done_msg "20_axis2_sentences_stft_ctc_bilstm" "$ARTIFACTS_BASE/20_axis2_objective/sentences_stft_ctc_bilstm" "Table 4.4, CTC rows"
+done_msg "20_axis2_sentences_stft_ctc_bilstm" "$ARTIFACTS_BASE/20_axis2_objective/sentences_stft_ctc_bilstm"

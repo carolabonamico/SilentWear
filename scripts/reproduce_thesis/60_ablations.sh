@@ -55,4 +55,4 @@ for NORM in "" _zscore _minmax; do
         speechnet_transformer 2.0 w2000ms --pool_subjects
 done
 
-done_msg "60_ablations" "$ARTIFACTS_BASE/60_ablations" "Figures 4.9, 4.10 and Table 4.9"
+done_msg "60_ablations" "$ARTIFACTS_BASE/60_ablations"

@@ -22,4 +22,4 @@ train_and_analyse config_thesis/thesis_base_words_w1400_rest.yaml \
                   "$DATA_WORDS" "$ARTIFACTS_BASE/20_axis2_objective/words_stft_ctc_bilstm" \
                   speechnet 1.4 w1400ms
 
-done_msg "20_axis2_words_stft_ctc_bilstm" "$ARTIFACTS_BASE/20_axis2_objective/words_stft_ctc_bilstm" "Table 4.4, CTC rows"
+done_msg "20_axis2_words_stft_ctc_bilstm" "$ARTIFACTS_BASE/20_axis2_objective/words_stft_ctc_bilstm"

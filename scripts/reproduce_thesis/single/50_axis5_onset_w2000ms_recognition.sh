@@ -22,4 +22,4 @@ train_and_analyse config_thesis/thesis_base_sentences_onset_w2000_norest.yaml \
                   "$DATA_SENTENCES" "$ARTIFACTS_BASE/50_axis5_trigger_free/onset_w2000ms_recognition" \
                   speechnet_transformer 2.0 w2000ms
 
-done_msg "50_axis5_onset_w2000ms_recognition" "$ARTIFACTS_BASE/50_axis5_trigger_free/onset_w2000ms_recognition" "Tables 4.10 and 6.4"
+done_msg "50_axis5_onset_w2000ms_recognition" "$ARTIFACTS_BASE/50_axis5_trigger_free/onset_w2000ms_recognition"

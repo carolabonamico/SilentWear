@@ -32,7 +32,7 @@ model:
       loss_name: ctc
       ctc:
         blank_id: 0
-        lexicon_path: lexicon/silentwear_lexicon_sentences.txt
+        lexicon_path: lexicon/silentwear_lexicon_paper.txt
         decoding: lexicon           # 'lexicon' (closed set) | 'recognition' (free character)
         allow_nearest_word_match: true
         decode_strategy: greedy    # 'greedy' (best-path) | 'beam' (CTC prefix beam search)

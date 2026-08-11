@@ -22,4 +22,4 @@ train_and_analyse config_thesis/thesis_base_sentences_w2000_rest.yaml \
                   "$DATA_SENTENCES" "$ARTIFACTS_BASE/30_axis3_sequence_stage/none_classification" \
                   speechnet 2.0 w2000ms
 
-done_msg "30_axis3_none_classification" "$ARTIFACTS_BASE/30_axis3_sequence_stage/none_classification" "Tables 4.6 and 6.1"
+done_msg "30_axis3_none_classification" "$ARTIFACTS_BASE/30_axis3_sequence_stage/none_classification"

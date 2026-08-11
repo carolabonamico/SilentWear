@@ -41,8 +41,4 @@ for TASK in classification recognition; do
         speechnet_transformer 2.4 w2400ms
 done
 
-# Yield of the detector: the fraction of cue boxes that receive a window.
-$PYTHON utils/I_data_preparation/onset_window_yield.py --data_dir "$DATA_SENTENCES" \
-    || echo "  [warn] yield report skipped"
-
-done_msg "50_axis5_trigger_free" "$ARTIFACTS_BASE/50_axis5_trigger_free" "Tables 4.10 and 6.4"
+done_msg "50_axis5_trigger_free" "$ARTIFACTS_BASE/50_axis5_trigger_free"

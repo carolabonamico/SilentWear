@@ -20,4 +20,4 @@ train_and_analyse config_thesis/thesis_base_sentences_w2000_rest.yaml \
                   "$DATA_SENTENCES" "$ARTIFACTS_BASE/60_ablations/pooled_none" \
                   speechnet_transformer 2.0 w2000ms --pool_subjects
 
-done_msg "60_pooled_none" "$ARTIFACTS_BASE/60_ablations/pooled_none" "Table 4.9"
+done_msg "60_pooled_none" "$ARTIFACTS_BASE/60_ablations/pooled_none"

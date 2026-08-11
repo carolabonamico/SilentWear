@@ -27,4 +27,4 @@ for EXP in $EXPERIMENTS; do
     beam_tables "$ROOT" "$EXP" speechnet_transformer w2000ms
 done
 
-done_msg "40_axis4_transformer_classification_sweep" "$ROOT" "Tables 4.7 and 6.2"
+done_msg "40_axis4_transformer_classification_sweep" "$ROOT"

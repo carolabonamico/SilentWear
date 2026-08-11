@@ -46,4 +46,4 @@ $PYTHON utils/III_results_analysis/aggregate_rest_sentence_results.py \
     --csv  "$ARTIFACTS_BASE/40_axis4_decoder_sweep/decoder_summary.csv" \
     || echo "  [warn] aggregation expects the run names of config_thesis"
 
-done_msg "40_axis4_decoder_sweep" "$ARTIFACTS_BASE/40_axis4_decoder_sweep" "Tables 4.7 and 6.2"
+done_msg "40_axis4_decoder_sweep" "$ARTIFACTS_BASE/40_axis4_decoder_sweep"

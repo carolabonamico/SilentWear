@@ -23,4 +23,4 @@ $PYTHON reproduce_paper_scripts/30_run_experiments.py \
     --subjects $SUBJECTS_3 --conditions $CONDITIONS \
     --aug_windows_s 1.4 --stride_ms 10 20 50 100 --num_strides 2 5 10
 
-done_msg "60_ablation_augmentation" "$ARTIFACTS_BASE/60_ablations/augmentation" "Figure 4.10"
+done_msg "60_ablation_augmentation" "$ARTIFACTS_BASE/60_ablations/augmentation"

@@ -33,4 +33,4 @@ for CORPUS in words sentences; do
     train_and_analyse "$BASE" "$MODEL" "$DATA" "$ROOT" speechnet "$WIN" "$WID"
 done
 
-done_msg "20_axis2_objective" "$ARTIFACTS_BASE/20_axis2_objective" "Table 4.4, CTC rows"
+done_msg "20_axis2_objective" "$ARTIFACTS_BASE/20_axis2_objective"

@@ -196,5 +196,4 @@ done_msg() {
     echo ""
     echo "DONE: $1"
     echo "  artefacts : $2"
-    echo "  thesis    : $3"
 }

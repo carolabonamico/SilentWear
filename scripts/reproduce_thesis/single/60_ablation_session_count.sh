@@ -22,4 +22,4 @@ $PYTHON reproduce_paper_scripts/30_run_experiments.py \
     --subjects $SUBJECTS_3 --conditions $CONDITIONS \
     --session_windows_s 1.4 --min_sessions 1
 
-done_msg "60_ablation_session_count" "$ARTIFACTS_BASE/60_ablations/session_count" "Figure 4.9"
+done_msg "60_ablation_session_count" "$ARTIFACTS_BASE/60_ablations/session_count"

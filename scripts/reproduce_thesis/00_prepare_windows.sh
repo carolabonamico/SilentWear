@@ -29,4 +29,4 @@ $PYTHON reproduce_paper_scripts/20_make_windows_and_features.py \
     --config config_thesis/create_windows_sentences_onset.yaml \
     --data_dir "$DATA_SENTENCES" --windows_s 2.4 --label_mode sentence
 
-done_msg "00_prepare_windows" "$DATA_WORDS, $DATA_SENTENCES" "Sections 3.1 and 3.2"
+done_msg "00_prepare_windows" "$DATA_WORDS, $DATA_SENTENCES"

@@ -51,4 +51,4 @@ for ARCH in $([ "$MEL" = "1" ] && echo "bilstm transformer"); do
     done
 done
 
-done_msg "30_axis3_sequence_stage" "$ARTIFACTS_BASE/30_axis3_sequence_stage" "Tables 4.6 and 6.1"
+done_msg "30_axis3_sequence_stage" "$ARTIFACTS_BASE/30_axis3_sequence_stage"

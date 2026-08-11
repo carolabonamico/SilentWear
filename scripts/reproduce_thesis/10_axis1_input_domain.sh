@@ -44,4 +44,4 @@ for CORPUS in words sentences; do
     done
 done
 
-done_msg "10_axis1_input_domain" "$ARTIFACTS_BASE/10_axis1_input_domain" "Tables 4.4 and 4.5"
+done_msg "10_axis1_input_domain" "$ARTIFACTS_BASE/10_axis1_input_domain"

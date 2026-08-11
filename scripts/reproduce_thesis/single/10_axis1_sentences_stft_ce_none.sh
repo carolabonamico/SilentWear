@@ -22,4 +22,4 @@ train_and_analyse config_thesis/thesis_base_sentences_w2000_rest.yaml \
                   "$DATA_SENTENCES" "$ARTIFACTS_BASE/10_axis1_input_domain/sentences_stft_ce_none" \
                   speechnet 2.0 w2000ms
 
-done_msg "10_axis1_sentences_stft_ce_none" "$ARTIFACTS_BASE/10_axis1_input_domain/sentences_stft_ce_none" "Tables 4.4 and 4.5"
+done_msg "10_axis1_sentences_stft_ce_none" "$ARTIFACTS_BASE/10_axis1_input_domain/sentences_stft_ce_none"

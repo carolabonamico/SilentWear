@@ -22,4 +22,4 @@ train_and_analyse config_thesis/thesis_base_words_w1400_rest.yaml \
                   "$DATA_WORDS" "$ARTIFACTS_BASE/10_axis1_input_domain/words_time_ce_bilstm" \
                   speechnet 1.4 w1400ms
 
-done_msg "10_axis1_words_time_ce_bilstm" "$ARTIFACTS_BASE/10_axis1_input_domain/words_time_ce_bilstm" "Tables 4.4 and 4.5"
+done_msg "10_axis1_words_time_ce_bilstm" "$ARTIFACTS_BASE/10_axis1_input_domain/words_time_ce_bilstm"
