@@ -1,31 +1,40 @@
 # Published SilentWear baseline | time domain | CTC | words
 # Architecture and training recipe of the upstream system, reproduced unchanged.
+#
+# This is the CE baseline (speechnet_baseline_words_ce.yaml) with the objective
+# swapped and nothing else touched. That is the whole point of the row it
+# produces in Table 4.2: the backbone is NOT resized, so the three temporal
+# poolings of 8, 4 and 4 leave five frames for a 1.4 s window, and CTC cannot
+# align a target of up to eight characters onto five frames. The measured
+# collapse is the empirical justification for the gentler pooling of the stacks
+# of Table 3.2. Widening the blocks or lowering the pooling here would measure a
+# different model and would leave that argument unsupported.
 model:
   kind: dl
   name: speechnet
   kwargs:
     p_dropout: 0.5
     global_pool: avg
-    rnn_hidden_dim: 128
 
     blocks_config:
+      - out_channels: 8
+        kernel: [1, 4]
+        pool: [1, 8]
+
       - out_channels: 16
-        kernel: [1, 5]
-        pool: [1, 2]
+        kernel: [1, 16]
+        pool: [1, 4]
+
+      - out_channels: 16
+        kernel: [1, 8]
+        pool: [1, 4]
 
       - out_channels: 32
-        kernel: [1, 5]
-        pool: [1, 2]
-
-      - out_channels: 64
-        kernel: [1, 5]
-        pool: [1, 2]
-
-      - out_channels: 64
-        kernel: ["full", 1]
+        kernel: [7, 1]
         pool: [1, 1]
-      - out_channels: 128
-        kernel: [1, 1]
+
+      - out_channels: 32
+        kernel: [7, 1]
         pool: [1, 1]
 
     train_cfg:
@@ -34,17 +43,15 @@ model:
         blank_id: 0
         lexicon_path: lexicon/silentwear_lexicon_paper.txt
         decoding: lexicon           # 'lexicon' (closed set) | 'recognition' (free character)
-        allow_nearest_word_match: true
-        decode_strategy: greedy    # 'greedy' (best-path) | 'beam' (CTC prefix beam search)
-        beam_width: 10             # beam size used when decode_strategy: beam
-      num_epochs: 150
-      warmup_epochs: 10
-      grad_clip_norm: 1.0
-      optimizer_cfg: { "name": "adamw", "lr": 5e-4 } # AdamW gestisce correttamente il decadimento dei pesi
-      scheduler:
-        factor: 0.5
-        mode: min
-        name: ReduceLROnPlateau
-        patience: 12
-      early_stop_patience: 35
-      weight_decay: 5e-3
+        decode_strategy: greedy     # 'greedy' (best-path) | 'beam' (CTC prefix beam search)
+      num_epochs: 100
+      optimizer_cfg: { "name": "adam", "lr": 1e-3 }
+      "scheduler":
+        {
+          "factor": 0.1,
+          "mode": "min",
+          "name": "ReduceLROnPlateau",
+          "patience": 2,
+        }
+      early_stop_patience: 10
+      weight_decay: 1e-4

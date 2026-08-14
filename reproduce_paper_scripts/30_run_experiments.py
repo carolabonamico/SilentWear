@@ -73,7 +73,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from utils.general_utils import window_ms_from_cfg
-from utils.I_data_preparation.read_bio_file import parse_bio_filename
 from offline_experiments.I_global_models import Global_Model_Trainer
 from offline_experiments.II_inter_session_models import Inter_Session_Model_Trainer
 from offline_experiments.III_train_from_scratch import TrainFromScratch_Model_Trainer
@@ -378,6 +377,14 @@ def main():
     ap.add_argument("--plot_loss", action="store_true", help="Save epoch-by-epoch training/val loss curves")
     ap.add_argument("--plot_scatter", action="store_true", help="Generate final scatter plots for ablation results")
 
+    # Explainability flags (global / inter_session SpeechNet only)
+    ap.add_argument("--explain_embeddings", action="store_true",
+                    help="Extract layer embeddings and run UMAP/t-SNE/PCA + centroid-margin analysis per fold")
+    ap.add_argument("--explain_methods", nargs="+", choices=["umap", "tsne", "pca"],
+                    default=["umap", "tsne", "pca"], help="Dimensionality-reduction methods")
+    ap.add_argument("--explain_layers", nargs="+", choices=["pre_bilstm", "pre_fc"],
+                    default=["pre_bilstm", "pre_fc"], help="SpeechNet points at which to grab embeddings")
+
     args = ap.parse_args()
 
     base_cfg = yaml.safe_load(args.base_config.read_text())
@@ -386,6 +393,13 @@ def main():
     
     # Propagate the loss plotting flag to internal trainers
     base_cfg["plot_loss"] = args.plot_loss
+
+    # Propagate explainability settings to internal trainers
+    base_cfg.setdefault("experiment", {})["explainability"] = {
+        "enabled": args.explain_embeddings,
+        "methods": args.explain_methods,
+        "layers": args.explain_layers,
+    }
 
     ft_cfg = None
     if "inter_session_ft" in args.experiment:

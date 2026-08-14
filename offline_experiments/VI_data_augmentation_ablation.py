@@ -35,7 +35,6 @@ sys.path.insert(0, str(REPO_ROOT))
 from offline_experiments.I_global_models import Global_Model_Trainer
 from offline_experiments.II_inter_session_models import Inter_Session_Model_Trainer
 from offline_experiments.general_utils import reset_all_seeds
-from utils.I_data_preparation.read_bio_file import parse_bio_filename
 from utils.general_utils import SubjectConfig, load_all_h5files_from_folder
 from utils.II_feature_extraction.win_feature_extraction_main import Global_Windower_and_Feature_Extractor
 from offline_experiments.general_utils import discover_sessions

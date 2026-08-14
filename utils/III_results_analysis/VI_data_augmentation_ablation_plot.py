@@ -290,7 +290,7 @@ def plot_data_augmentation(
 
             x_tick_labels = [str(int(sc)) for sc in session_counts]
 
-            centers = build_multi_subject_blocks(
+            build_multi_subject_blocks(
                 ax=ax,
                 subjects=subjects,
                 x_values=session_counts,

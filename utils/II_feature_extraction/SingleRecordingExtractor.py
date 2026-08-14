@@ -441,7 +441,6 @@ class Single_Recording_Windower_and_Feature_Extractor:
 
         for index, seg in tqdm(seg_df.iterrows(), total=total_segments, desc="Analyzed segments"):
             start_idx = int(seg["start_idx"])
-            end_seg = int(seg["end_idx"])  # end of the run (exclusive)
 
             for shift_samples, shift_direction in augmentation_offsets:
                 augmented_start_idx = start_idx + shift_samples

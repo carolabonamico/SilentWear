@@ -6,7 +6,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-"""Aggregate the sentence results into the table the results chapters quote.
+"""Aggregate the sentence results into the summary table the report quotes.
 
 Run:  python3 utils/III_results_analysis/aggregate_rest_sentence_results.py
       python3 ... --root artifacts_beam_sweep_no_rest
@@ -74,7 +74,7 @@ def beam_figures(run_dir, columns, window=DEFAULT_WINDOW):
 
 
 def per_subject(run_dir, column, window=DEFAULT_WINDOW):
-    """Per-participant beam figures, for the appendix tables."""
+    """Per-participant beam figures."""
     rows = []
     for path in glob.glob(os.path.join(run_dir, "tables_beam",
                                        f"*_{window}_*_beam.csv")):
@@ -100,7 +100,7 @@ def main():
                          "the checkpoint path and in the table filename")
     ap.add_argument("--per-subject", action="store_true",
                     help="print the per-participant figures instead of the "
-                         "pooled ones, which is what the appendix tables need; "
+                         "pooled ones, which is what the per-participant tables need; "
                          "ignores --csv")
     args = ap.parse_args()
 

@@ -43,6 +43,7 @@ from offline_experiments.Model_Master import Model_Master
 from models.seeds import TORCH_MANUAL_SEED, RANDOM_SEED, RGN_SEED
 from utils.general_utils import load_all_h5files_from_folder, print_dataset_summary_statistics
 from offline_experiments.general_utils import *
+from offline_experiments.explainability import maybe_run_explainability
 
 
 class Global_Model_Trainer:
@@ -377,6 +378,14 @@ class Global_Model_Trainer:
 
         model, metrics, y_true, y_pred = self.model_master.train_model(
             test=True, save_model_path=save_model_path
+        )
+
+        maybe_run_explainability(
+            self.model_master,
+            self.base_config,
+            df_trainval=pd.concat([self.model_master.df_train, self.model_master.df_val]),
+            df_test=self.model_master.df_test,
+            out_dir=self.model_dire / "explainability" / f"fold_{fold_id+1}",
         )
 
         row_summary: Dict[str, Any] = {

@@ -9,7 +9,7 @@ This script contains utils function to perfrom Exploratory Data Analysis on the 
 """
 
 import pandas as pd
-from typing import List, Optional, Union
+from typing import List, Union
 from pathlib import Path
 import re
 import sys
@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.II_feature_extraction.FeatExtractorManager import FeatureRegistry
-from utils.II_feature_extraction.UmapExtractor import (
+from utils.II_feature_extraction.ProjectionExtractor import (
     UMAP_Projection_Extractor,
     UMAPConfig,
     TSNE_Projection_Extractor,

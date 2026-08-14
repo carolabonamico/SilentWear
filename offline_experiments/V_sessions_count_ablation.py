@@ -19,7 +19,7 @@ import argparse
 import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import List, Optional, Any
 
 import numpy as np
 import pandas as pd
@@ -31,7 +31,6 @@ sys.path.insert(0, str(REPO_ROOT))
 from offline_experiments.I_global_models import Global_Model_Trainer
 from offline_experiments.II_inter_session_models import Inter_Session_Model_Trainer
 from offline_experiments.general_utils import reset_all_seeds
-from utils.I_data_preparation.read_bio_file import parse_bio_filename
 from utils.general_utils import load_all_h5files_from_folder
 from offline_experiments.general_utils import discover_sessions
 

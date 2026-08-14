@@ -114,7 +114,6 @@ def read_bio_file(file_path: str) -> dict:
             itemsize = 4    # saving as uint32_t
             trigger = np.frombuffer(f.read(itemsize * n_samp_base), dtype=np.uint32).reshape(n_samp_base, 1)
             signals["trigger"] = {"data": trigger, "fs": fs_base}
-            minus_one_uint32 = np.iinfo(np.uint32).max 
             
             # unique_triggers = np.unique(trigger)
             # print(f"Unique trigger values: {unique_triggers}")

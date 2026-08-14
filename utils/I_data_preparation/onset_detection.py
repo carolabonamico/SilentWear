@@ -43,7 +43,6 @@ from typing import Iterator, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from I_data_preparation.experimental_config import FS
 from utils.I_data_preparation.experimental_config import FS
 
 
@@ -350,6 +349,92 @@ def rest_intervals_between_events(
     return gaps
 
 
+def rest_spans_from_boxes(
+    boxes: Sequence[Tuple[int, int, int]], n_samples: int
+) -> List[Tuple[int, int]]:
+    """The complement of the cue boxes, i.e. the rest spans of the recording."""
+    spans: List[Tuple[int, int]] = []
+    cursor = 0
+    for bs, be, _ in boxes:
+        if bs > cursor:
+            spans.append((cursor, bs))
+        cursor = max(cursor, be)
+    if n_samples > cursor:
+        spans.append((cursor, n_samples))
+    return spans
+
+
+def binary_rates_from_counts(tp: int, fp: int, fn: int, tn: int) -> dict:
+    """Precision, recall and the rest of the rates a 2x2 table defines."""
+    div = lambda a, b: float(a) / b if b else float("nan")
+    recall = div(tp, tp + fn)
+    specificity = div(tn, tn + fp)
+    mcc_den = np.sqrt(float(tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "precision": div(tp, tp + fp),
+        "recall": recall,
+        "specificity": specificity,
+        "false_positive_rate": div(fp, fp + tn),
+        "f1": div(2 * tp, 2 * tp + fp + fn),
+        "accuracy": div(tp + tn, tp + fp + fn + tn),
+        "balanced_accuracy": (recall + specificity) / 2,
+        "mcc": (tp * tn - fp * fn) / mcc_den if mcc_den > 0 else float("nan"),
+    }
+
+
+def _binary_rates(tp: int, fp: int, fn: int, tn: int, prefix: str) -> dict:
+    """:func:`binary_rates_from_counts` under a key prefix."""
+    return {f"{prefix}_{k}": v for k, v in binary_rates_from_counts(tp, fp, fn, tn).items()}
+
+
+def binary_scores(
+    events: Sequence[SpeechEvent],
+    boxes: Sequence[Tuple[int, int, int]],
+    n_samples: int,
+    tolerance_s: float = OnsetConfig.match_tolerance_s,
+    fs: int = FS,
+) -> dict:
+    """Read the detector as a binary speech-against-rest classifier."""
+    matches = match_events_to_boxes(events, boxes, tolerance_s, fs)
+
+    seg_tp = len({m for m in matches if m is not None})
+    seg_fn = len(boxes) - seg_tp
+    rest = rest_spans_from_boxes(boxes, n_samples)
+    woken = {
+        ri
+        for ev, m in zip(events, matches)
+        if m is None
+        for ri, (rs, re_) in enumerate(rest)
+        if rs <= ev.onset < re_
+    }
+    seg_fp, seg_tn = len(woken), len(rest) - len(woken)
+
+    pred = np.zeros(n_samples, dtype=bool)
+    for ev in events:
+        pred[ev.onset:ev.offset] = True
+    true = np.zeros(n_samples, dtype=bool)
+    for bs, be, _ in boxes:
+        true[bs:be] = True
+    smp_tp = int(np.count_nonzero(pred & true))
+    smp_fp = int(np.count_nonzero(pred & ~true))
+    smp_fn = int(np.count_nonzero(~pred & true))
+    smp_tn = int(np.count_nonzero(~pred & ~true))
+
+    med = lambda v: float(np.median(v)) if len(v) else float("nan")
+    return {
+        "n_rest_spans": len(rest),
+        "box_duration_median_s": med([(be - bs) / fs for bs, be, _ in boxes]),
+        "rest_span_median_s": med([(re_ - rs) / fs for rs, re_ in rest]),
+        "flagged_frac": float(np.count_nonzero(pred)) / n_samples if n_samples else float("nan"),
+        **_binary_rates(seg_tp, seg_fp, seg_fn, seg_tn, "seg"),
+        **_binary_rates(smp_tp, smp_fp, smp_fn, smp_tn, "smp"),
+    }
+
+
 def score_against_trigger(
     events: Sequence[SpeechEvent],
     boxes: Sequence[Tuple[int, int, int]],
@@ -367,7 +452,7 @@ def score_against_trigger(
     matches = match_events_to_boxes(events, boxes, tolerance_s, fs)
     covered = {m for m in matches if m is not None}
 
-    latencies, durations = [], []
+    latencies, durations, spans = [], [], []
     for bi, (bs, _, _) in enumerate(boxes):
         own = [i for i, m in enumerate(matches) if m == bi]
         if not own:
@@ -376,6 +461,12 @@ def score_against_trigger(
         last_offset = max(events[i].offset for i in own)
         latencies.append((first.onset - bs) / fs)
         durations.append((last_offset - first.onset) / fs)
+        spans.append((last_offset - bs) / fs)
+
+    matched_peak = [ev.peak_activity for ev, m in zip(events, matches) if m is not None]
+    unmatched_peak = [ev.peak_activity for ev, m in zip(events, matches) if m is None]
+    matched_dur = [(ev.offset - ev.onset) / fs for ev, m in zip(events, matches) if m is not None]
+    unmatched_dur = [(ev.offset - ev.onset) / fs for ev, m in zip(events, matches) if m is None]
 
     false_alarms = sum(
         1
@@ -395,4 +486,18 @@ def score_against_trigger(
         "duration_median_s": pct(durations, 50),
         "duration_p90_s": pct(durations, 90),
         "duration_p95_s": pct(durations, 95),
+        # Fraction of detected trials a 2.0 s cue-anchored window would truncate.
+        "span_from_cue_median_s": pct(spans, 50),
+        "span_from_cue_p90_s": pct(spans, 90),
+        "truncated_at_2000ms_frac": (
+            float(np.mean([s > 2.0 for s in spans])) if spans else float("nan")),
+        "truncated_at_2400ms_frac": (
+            float(np.mean([s > 2.4 for s in spans])) if spans else float("nan")),
+        # Matched against unmatched events, on amplitude and on duration.
+        "peak_matched_median": pct(matched_peak, 50),
+        "peak_unmatched_median": pct(unmatched_peak, 50),
+        "duration_matched_median_s": pct(matched_dur, 50),
+        "duration_unmatched_median_s": pct(unmatched_dur, 50),
+        "n_unmatched_events": len(unmatched_peak),
+        **binary_scores(events, boxes, n_samples, tolerance_s, fs),
     }

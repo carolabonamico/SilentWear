@@ -48,6 +48,6 @@ experiment:
   label_mode: word
   data_normalization: false
 cv:
-  mode: stratified_session_label
+  mode: leave_one_batch_out
   n_splits: 5
   val_size: 0.2

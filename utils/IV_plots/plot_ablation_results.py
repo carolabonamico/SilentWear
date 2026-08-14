@@ -8,8 +8,8 @@
 Plots for the classification ablation studies
 ========================================================================
 
-Regenerates the ablation figures used in the thesis (Chapter "Sentence
-Classification: Results") in a small, serif-font style consistent with the
+Regenerates the ablation figures used in the thesis in a small, serif-font
+style consistent with the
 other figures of the report and suitable for a paper as well.
 
 It reads the ``cv_summary.csv`` files produced by the ablation trainers,
