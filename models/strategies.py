@@ -1,3 +1,9 @@
+# Copyright ETH Zurich 2026
+# Licensed under Apache v2.0 see LICENSE for details.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
 """
 Defines task-specific strategies for computing loss and making predictions, such as CrossEntropy and CTC.
 """
@@ -10,6 +16,11 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from models.ctc_decoding import ctc_prefix_beam_search
+
+
+# ---------------------------------------------------------------------------
+# Strategy interface
+# ---------------------------------------------------------------------------
 
 
 class TaskStrategy(ABC):
@@ -42,6 +53,11 @@ class TaskStrategy(ABC):
         pass
 
 
+# ---------------------------------------------------------------------------
+# CE
+# ---------------------------------------------------------------------------
+
+
 class CrossEntropyStrategy(TaskStrategy):
     """Standard cross-entropy strategy for classification tasks."""
 
@@ -61,6 +77,11 @@ class CrossEntropyStrategy(TaskStrategy):
 
     def predict_labels(self, outputs, use_score_fallback: bool = True) -> np.ndarray:
         return self.greedy_decode(self._prepare_logits(outputs)).detach().cpu().numpy()
+
+
+# ---------------------------------------------------------------------------
+# CTC
+# ---------------------------------------------------------------------------
 
 
 class CTCStrategy(TaskStrategy):
@@ -111,6 +132,16 @@ class CTCStrategy(TaskStrategy):
             for label, text in self.text_mapper.label_to_text_map.items()
         }
         self._ctc_len_warned = False
+
+    @property
+    def word_vocabulary(self) -> tuple:
+        """Closed word vocabulary of the task: the words of all the lexicon texts.
+
+        Passed to `compute_wer_metrics` so the vocabulary-constrained WER snaps
+        each hypothesis word onto the lexicon's word set, independently of which
+        utterances a given evaluation split contains.
+        """
+        return self.text_mapper.word_vocabulary
 
     def _warn_if_targets_too_long(self, target_lengths: torch.Tensor, time_steps: int) -> None:
         """Surface samples that CTC cannot align (target longer than input frames).

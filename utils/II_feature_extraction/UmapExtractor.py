@@ -26,6 +26,11 @@ import umap
 from sklearn.preprocessing import StandardScaler
 
 
+# ---------------------------------------------------------------------------
+# Configurations
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class UMAPConfig:
     n_neighbors: int = 15
@@ -54,6 +59,11 @@ class PCAConfig:
 
 # Definizione per il linter di tutti i possibili tipi di configurazione
 AnyConfig = Union[UMAPConfig, TSNEConfig, PCAConfig]
+
+
+# ---------------------------------------------------------------------------
+# Base projection extractor
+# ---------------------------------------------------------------------------
 
 
 class Projection_Extractor:
@@ -572,6 +582,11 @@ class Projection_Extractor:
         out_path = self.out_dir / filename
         fig.savefig(out_path, bbox_inches="tight")
         print(f"[{self.method.upper()}] Saved: {out_path}")
+
+
+# ---------------------------------------------------------------------------
+# Concrete extractors
+# ---------------------------------------------------------------------------
 
 
 class UMAP_Projection_Extractor(Projection_Extractor):

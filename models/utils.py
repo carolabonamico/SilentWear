@@ -28,6 +28,11 @@ import torch.nn as nn
 from utils.I_data_preparation.experimental_config import FS, get_active_labels, build_label_maps
 
 
+# ---------------------------------------------------------------------------
+# Classification metrics
+# ---------------------------------------------------------------------------
+
+
 def compute_metrics(y_true, y_pred):
     """
     Docstring for compute_metrics
@@ -73,8 +78,43 @@ def compute_metrics(y_true, y_pred):
     return metrics, y_true, y_pred
 
 
-def compute_wer_metrics(y_true, y_pred, verbose: bool = True):
-    """Compute recognition metrics (WER, CER) for the free-character CTC decoder."""
+# ---------------------------------------------------------------------------
+# Recognition metrics
+# ---------------------------------------------------------------------------
+
+
+def build_word_vocabulary(texts) -> Tuple[str, ...]:
+    """Vocabulary of every word appearing across *all* the given texts."""
+    return tuple(sorted({w for t in texts for w in str(t).split()}))
+
+
+def snap_texts_to_vocabulary(texts, vocabulary):
+    """Rewrite every word of `texts` as its nearest vocabulary word."""
+    import editdistance
+
+    vocab = tuple(vocabulary)
+    if not vocab:
+        return [str(t) for t in texts]
+
+    cache = {w: w for w in vocab}
+
+    def nearest(word: str) -> str:
+        hit = cache.get(word)
+        if hit is None:
+            hit = min(vocab, key=lambda cand: (editdistance.eval(word, cand), cand))
+            cache[word] = hit
+        return hit
+
+    return [" ".join(nearest(w) for w in str(t).split()) for t in texts]
+
+
+def compute_wer_metrics(y_true, y_pred, verbose: bool = True, vocabulary=None):
+    """Compute recognition metrics (WER, CER) for the free-character CTC decoder.
+
+    Used in place of accuracy/precision/recall/F1 when the model is decoded as a
+    free-character CTC recogniser. This is closed-set recognition scored by edit
+    distance.
+    """
     import jiwer
 
     wer = float(jiwer.wer(y_true, y_pred))
@@ -91,11 +131,26 @@ def compute_wer_metrics(y_true, y_pred, verbose: bool = True):
     balanced_wer = float(np.mean([jiwer.wer(refs, hyps) for refs, hyps in groups.values()]))
     balanced_cer = float(np.mean([jiwer.cer(refs, hyps) for refs, hyps in groups.values()]))
 
+    vocab = build_word_vocabulary(y_true) if vocabulary is None else tuple(vocabulary)
+    y_pred_snapped = snap_texts_to_vocabulary(y_pred, vocab)
+    vocab_wer = float(jiwer.wer(y_true, y_pred_snapped))
+    snapped_groups = {}
+    for ref, hyp in zip(y_true, y_pred_snapped):
+        snapped_groups.setdefault(ref, ([], []))
+        snapped_groups[ref][0].append(ref)
+        snapped_groups[ref][1].append(hyp)
+    balanced_vocab_wer = float(
+        np.mean([jiwer.wer(refs, hyps) for refs, hyps in snapped_groups.values()])
+    )
+
     metrics = {
         "wer": wer,
         "balanced_wer": balanced_wer,
         "cer": cer,
         "balanced_cer": balanced_cer,
+        "vocab_wer": vocab_wer,
+        "balanced_vocab_wer": balanced_vocab_wer,
+        "vocab_size": int(len(vocab)),
         "n_samples": int(len(y_true)),
     }
 
@@ -103,8 +158,17 @@ def compute_wer_metrics(y_true, y_pred, verbose: bool = True):
         print("\n=== Test Metrics (recognition) ===")
         print(f"{'WER':<15}: UNBALANCED {wer:6.4f}  - BALANCED {balanced_wer:6.4f}")
         print(f"{'CER':<15}: UNBALANCED {cer:6.4f}  - BALANCED {balanced_cer:6.4f}")
+        print(
+            f"{'WER (vocab)':<15}: UNBALANCED {vocab_wer:6.4f}  - BALANCED {balanced_vocab_wer:6.4f}"
+            f"   [vocab={len(vocab)} words]"
+        )
 
     return metrics, y_true, y_pred
+
+
+# ---------------------------------------------------------------------------
+# Model size and cost
+# ---------------------------------------------------------------------------
 
 
 def count_params(model: nn.Module) -> Tuple[int, int]:
@@ -155,6 +219,47 @@ def count_flops(model: nn.Module, example_input: torch.Tensor) -> Optional[int]:
                 pass
         if was_training:
             model.train()
+
+
+def conv_input_shape(model: nn.Module, example_input: torch.Tensor) -> Optional[Tuple[int, ...]]:
+    """Shape of the tensor that actually enters the first convolution.
+
+    Returns the shape tuple, or ``None`` if there is no conv or the pass fails
+    (profiling must never break a run).
+    """
+    conv = next(
+        (m for m in model.modules() if isinstance(m, (nn.Conv1d, nn.Conv2d, nn.Conv3d))),
+        None,
+    )
+    if conv is None:
+        return None
+
+    captured: dict = {}
+
+    def _hook(_module, inputs):
+        if inputs and hasattr(inputs[0], "shape"):
+            captured["shape"] = tuple(inputs[0].shape)
+
+    handle = conv.register_forward_pre_hook(_hook)
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            model(example_input)
+    except Exception as exc:  # pragma: no cover - never break a run over profiling
+        print(f"[Conv input shape] skipped ({type(exc).__name__}: {exc}).")
+        return None
+    finally:
+        handle.remove()
+        if was_training:
+            model.train()
+
+    return captured.get("shape")
+
+
+# ---------------------------------------------------------------------------
+# Checkpoints and architecture info
+# ---------------------------------------------------------------------------
 
 
 def check_weights_updated(before_state_dict: dict, model_after: nn.Module) -> bool:
@@ -316,6 +421,16 @@ def save_model_architecture_to_csv(
             "Layer_Type": "Input_Shape",
             "Parameters_Count": str(input_shape)
         })
+        conv_in_shape = conv_input_shape(model, example_input)
+        if conv_in_shape is not None:
+            domain = getattr(model, "domain", "time")
+            print(f"[Conv input] {model_name}: {conv_in_shape} entering the conv stack "
+                  f"(domain='{domain}', from model input {input_shape})")
+            rows.append({
+                "Layer_Name": "GLOBAL_SUMMARY",
+                "Layer_Type": "Conv_Input_Shape",
+                "Parameters_Count": str(conv_in_shape)
+            })
         flops = count_flops(model, example_input)
         if flops is not None:
             print(f"[FLOPs] {model_name}: {flops:,} FLOPs/sample ({flops / 1e6:.1f} MFLOPs) "

@@ -51,6 +51,11 @@ from offline_experiments.general_utils import base_window_rows, check_data_direc
 from utils.general_utils import load_subjects_data, open_file
 
 
+# ---------------------------------------------------------------------------
+# Fine-tuning setup
+# ---------------------------------------------------------------------------
+
+
 def build_ft_directory(model_base_folder: Path) -> Path:
     """Create a new subfolder ft_config_<N> under model_base_folder."""
     model_base_folder = Path(model_base_folder)
@@ -186,6 +191,11 @@ def _ft_output_root(
     artifacts_root = Path(base_cfg["data"]["models_main_directory"])
 
     return artifacts_root / "models" / "inter_session_ft" / sub / cond / model_name / model_id
+
+
+# ---------------------------------------------------------------------------
+# Fine-tuning driver
+# ---------------------------------------------------------------------------
 
 
 def run_ft_for(
@@ -357,6 +367,11 @@ def run_ft_for(
     return model_ft_base_folder
 
 
+# ---------------------------------------------------------------------------
+# Trainer wrapper
+# ---------------------------------------------------------------------------
+
+
 class FineTuning_Model_Trainer:
     """Importable trainer compatible with scripts/30_run_experiments.py."""
 
@@ -374,6 +389,11 @@ class FineTuning_Model_Trainer:
         sub = self.base_cfg["data"]["subject_id"]
         cond = self.base_cfg["condition"]
         return run_ft_for(sub, cond, self.base_cfg, self.model_cfg, self.ft_cfg)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def main():

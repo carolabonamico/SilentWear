@@ -75,6 +75,8 @@ class Global_Windower_and_Feature_Extractor:
         self.win_size_sec = subject_config.window_size_s
         self.num_subwins = subject_config.num_subwindows
         self.data_augmentation = getattr(subject_config, "data_augmentation", None)
+        self.alignment = getattr(subject_config, "window_alignment", "cue")
+        self.onset_detection = getattr(subject_config, "onset_detection", None) or {}
 
     def find_all_processed_h5(self) -> list:
         """Return all filtered .h5 recordings under the subject's processed folder.
@@ -118,6 +120,14 @@ class Global_Windower_and_Feature_Extractor:
         if self.save_data:
             self.create_saving_directory()
 
+        if self.alignment == "onset":
+            print(
+                "[INFO] Window alignment: ONSET (trigger-free detection defines the "
+                f"windows; the trigger only supplies the labels).\n"
+                f"[INFO] Writing under '{self.wins_and_features_dirname}' — keep this "
+                "different from the cue-aligned root so both datasets survive."
+            )
+
         h5_files = self.find_all_processed_h5()
         print("hf files found:")
         print(h5_files)
@@ -141,8 +151,10 @@ class Global_Windower_and_Feature_Extractor:
                     h5_file_path=curr_h5_file,
                     window_size_s=self.win_size_sec,
                     manual_feature_extraction=self.manual_feature_extraction,
-                    data_augmentation=self.data_augmentation,         
+                    data_augmentation=self.data_augmentation,
                     num_subwindows=self.num_subwins,
+                    alignment=self.alignment,
+                    onset_detection=self.onset_detection,
                 )
 
                 df_wins_feats = single_rec_win_feat.process_single_recording(label_mode=self.label_mode)

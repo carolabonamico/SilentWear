@@ -16,7 +16,6 @@ import torch
 import pandas as pd
 import torch.nn as nn
 
-########### Project-level imports
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -35,7 +34,6 @@ from offline_experiments.general_utils import (
     reorder_ml_features_by_channel,
 )
 
-#######################
 
 NUM_CHANNELS = 14
 

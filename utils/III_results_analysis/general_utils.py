@@ -714,7 +714,6 @@ def build_multi_subject_blocks(
         for sname, subj_data in series.items():
             if name == "Average":
                 means_stack = np.array(all_means[sname])   # (n_subj, nX)
-                stds_stack  = np.array(all_stds[sname])
                 if means_stack.size == 0:
                     continue
                 y_mean = np.nanmean(means_stack, axis=0)
@@ -853,7 +852,6 @@ def build_twin_axis_blocks(
         for sname, subj_data in series1.items():
             if name == "Average":
                 means_stack = np.array(all_means_1[sname])
-                stds_stack  = np.array(all_stds_1[sname])
                 if means_stack.size == 0:
                     continue
                 y_mean = np.nanmean(means_stack, axis=0)
@@ -888,7 +886,6 @@ def build_twin_axis_blocks(
         for sname, subj_data in series2.items():
             if name == "Average":
                 means_stack = np.array(all_means_2[sname])
-                stds_stack  = np.array(all_stds_2[sname])
                 if means_stack.size == 0:
                     continue
                 y_mean = np.nanmean(means_stack, axis=0)

@@ -1,3 +1,9 @@
+# Copyright ETH Zurich 2026
+# Licensed under Apache v2.0 see LICENSE for details.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
 from __future__ import annotations
 
 import math
@@ -7,6 +13,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.init import trunc_normal_
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint loading
+# ---------------------------------------------------------------------------
 
 
 def load_checkpoint_state_dict(checkpoint_path: str) -> dict:
@@ -28,6 +39,11 @@ def load_checkpoint_state_dict(checkpoint_path: str) -> dict:
             return payload["model_state_dict"]
         return payload
     raise TypeError(f"Unsupported checkpoint payload type: {type(payload)}")
+
+
+# ---------------------------------------------------------------------------
+# Building blocks
+# ---------------------------------------------------------------------------
 
 
 class LearnedRelativePositionalEmbedding(nn.Module):
@@ -249,6 +265,11 @@ class CustomAttentionBlock(nn.Module):
         src = self.norm1(src + self.dropout1(self.attn(src)))
         src = self.norm2(src + self.dropout2(self.mlp(src)))
         return src
+
+
+# ---------------------------------------------------------------------------
+# Model
+# ---------------------------------------------------------------------------
 
 
 class EMGTransformer(nn.Module):

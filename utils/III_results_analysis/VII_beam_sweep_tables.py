@@ -13,8 +13,19 @@ Per-subject result tables at the best-beam CTC decode.
 This is the beam-search counterpart of
 ``utils/III_results_analysis/I_global_intersession_analysis.py``.
 
-This script re-decodes the same cached per-fold dumps and
-emits the exact same per-subject/condition table as I_global_intersession, but
+Why a separate script
+---------------------
+``I_global_intersession_analysis.py`` builds its per-subject/condition tables from
+``cv_summary.csv``, whose metrics were computed at training time with the decode
+baked into the config -- ``decode_strategy: greedy`` for the beam-sweep runs. So
+those tables are locked to greedy and can never show a beam operating point.
+
+``offline_experiments/VII_beam_sweep.py`` sweeps the decode parameters over the cached
+per-fold log-probs, but only reports **pooled** aggregate metrics (one number over
+all samples), with no per-subject breakdown.
+
+This script combines the two: it re-decodes the same cached per-fold dumps and
+emits the **exact same per-subject/condition table** as I_global_intersession, but
 for the beam configuration that scored best in ``beam_sweep_<experiment>.csv`` --
 with no retraining. Recognition runs produce a WER/CER table, classification runs a
 balanced-accuracy table, matching the original format and file naming (with a
@@ -57,15 +68,24 @@ sys.path.insert(0, str(REPO_ROOT))
 from offline_experiments.VII_beam_sweep import DecodeCombo, OfflineCTCMapper, _decode_seq, load_dumps
 from models.utils import compute_wer_metrics
 
-RECOGNITION_METRICS = ["wer", "balanced_wer", "cer", "balanced_cer"]
+RECOGNITION_METRICS = [
+    "wer", "balanced_wer", "cer", "balanced_cer", "vocab_wer", "balanced_vocab_wer",
+]
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Parallel per-fold decoding
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 _POOL_SEQS: List[np.ndarray] = []
 _POOL_COMBO: Optional[DecodeCombo] = None
 _POOL_BLANK: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Decoding pool
+# ---------------------------------------------------------------------------
 
 
 def _pool_decode(idx: int) -> List[int]:
@@ -85,9 +105,11 @@ def _decode_fold(seqs: List[np.ndarray], combo: DecodeCombo, blank_id: int, jobs
     return [_decode_seq(s, combo, blank_id) for s in seqs]
 
 
-# --------------------------------------------------------------------------- #
-# Run discovery (keyed on the per-fold *_logprobs.npz dumps instead of cv_summary.csv)
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# Run discovery
+# ---------------------------------------------------------------------------
+
+
 def _fold_dumps(run_path: Path) -> List[Path]:
     """Sorted per-fold log-prob dumps under a single model_<k> folder."""
     return sorted(run_path.glob("*logprobs*.npz"))
@@ -130,9 +152,11 @@ def _latest_model_run(folder: Path) -> Optional[str]:
     return sorted(ks)[-1][1] if ks else None
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Best-beam-config selection from beam_sweep_<experiment>.csv
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 def _metric_maximize(metric: str) -> bool:
     """accuracy-like metrics are maximised; wer/cer/empty_rate minimised."""
     return "accuracy" in metric or "acc" in metric
@@ -166,9 +190,11 @@ def _best_beam_from_csv(sweep_csv: Path, metric: str) -> DecodeCombo:
     return combo
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Per-fold scoring
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 def _score_fold(
     fold_file: Path, combo: DecodeCombo, task: str, jobs: int,
     dump_pred_path: Optional[Path] = None,
@@ -182,7 +208,7 @@ def _score_fold(
 
     if task == "recognition":
         refs = mapper.label_int_to_texts(labels.tolist())
-        m, _, _ = compute_wer_metrics(refs, hyps, verbose=False)
+        m, _, _ = compute_wer_metrics(refs, hyps, verbose=False, vocabulary=mapper.word_vocabulary)
         out = {k: float(m[k]) for k in RECOGNITION_METRICS}
     else:
         preds = np.asarray(mapper.texts_to_label_int(hyps, allow_nearest=True), dtype=np.int64)
@@ -206,8 +232,8 @@ def _score_fold(
 def _dump_predictions(path: Path, task: str, mapper: OfflineCTCMapper, labels, hyps: List[str]) -> None:
     """Per-sample dump (.txt + .csv).
 
-    Recognition writes ``index, reference, recognition_output``;
-    classification also writes ``classification_output``.
+    Task-aware columns: recognition writes ``index, reference, recognition_output``;
+    classification also writes ``classification_output`` (the predicted class text).
     """
     import csv as _csv
 
@@ -250,11 +276,31 @@ def _dump_predictions(path: Path, task: str, mapper: OfflineCTCMapper, labels, h
         writer.writerows(rows)
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Table building
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 def _pct(vals: np.ndarray) -> str:
     return f"{np.round(np.mean(vals) * 100, 1)}±{np.round(np.std(vals) * 100, 1)}"
+
+
+def _print_table(df: "pd.DataFrame", task: str, experiment: str, model_name: str,
+                 model_name_id: str, condition: str, combo: DecodeCombo) -> None:
+    """Print the per-subject table."""
+    print("\n" + "=" * 110)
+    print(
+        f"Experiment: {experiment} | Model: {model_name} | model_name_id: {model_name_id} "
+        f"| Condition: {condition} | Decode: {combo.label()}"
+    )
+    print("=" * 110)
+
+    if task == "recognition":
+        perc_cols = [f"{m}_mean_std_perc" for m in RECOGNITION_METRICS]
+    else:
+        perc_cols = ["mean_std_perc"]
+    print_cols = ["subject", "model_run"] + [c for c in perc_cols if c in df.columns]
+    print(df[print_cols].to_string())
 
 
 def build_table(
@@ -333,14 +379,16 @@ def build_table(
             all_row["mean_std_perc"] = f"{np.round(means.mean()*100, 2)}±{np.round(means.std()*100, 2)}"
         df = pd.concat([df, pd.DataFrame([all_row])], ignore_index=True)
 
+    # Record the decode used so the table is self-describing.
     df["decode"] = combo.decode
     df["decode_config"] = combo.label()
     return df
 
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # CLI
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
 def _detect_task(artifacts_dir: Path, experiment: str) -> str:
     """Read the 'task' field from any fold meta under the artifacts root."""
     for meta in (artifacts_dir / "models" / experiment).rglob("*logprobs*.meta.json"):
@@ -426,7 +474,8 @@ def main():
             out_csv = tables_dir / (
                 f"{args.model_name}_{model_run_tag}_{cond}_{args.model_name_id}_{args.experiment}_{decode_tag}.csv")
             df.to_csv(out_csv, index=False)
-            print(f"[SAVED] {out_csv}")
+            _print_table(df, task, args.experiment, args.model_name, args.model_name_id, cond, combo)
+            print(f"\n[SAVED] {out_csv}")
 
     print("\nDONE. Beam tables in:", tables_dir)
 

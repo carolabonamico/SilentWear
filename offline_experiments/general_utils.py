@@ -16,7 +16,7 @@ from datetime import datetime
 import torch
 import numpy as np
 import random
-from typing import List, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 import yaml
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -42,7 +42,9 @@ from utils.I_data_preparation.experimental_config import (
 SESSION_RE = re.compile(r"sess_(\d+)")
 
 
-#################################### Utils for Data Preparation ######################################
+# ---------------------------------------------------------------------------
+# Utils for Data Preparation
+# ---------------------------------------------------------------------------
 
 
 def feature_names_to_consider(
@@ -110,7 +112,9 @@ def reorder_ml_features_by_channel(cols: List[str], channel_order: List[int]) ->
     return [col for _, col in parsed_sorted]
 
 
-#################################### Utils to override configs ######################################
+# ---------------------------------------------------------------------------
+# Utils to override configs
+# ---------------------------------------------------------------------------
 
 
 def deep_update(d: dict, u: dict) -> dict:
@@ -123,7 +127,9 @@ def deep_update(d: dict, u: dict) -> dict:
     return d
 
 
-#################### Utils to Keep Track of Runs ##############################
+# ---------------------------------------------------------------------------
+# Utils to Keep Track of Runs
+# ---------------------------------------------------------------------------
 
 
 def mark_running(run_dir: Path, meta: dict):
@@ -157,7 +163,9 @@ def should_skip(run_dir: Path, *, rerun_failed=False, rerun_running=False) -> bo
     return False
 
 
-#################### Utils for data loading ################################
+# ---------------------------------------------------------------------------
+# Utils for data loading
+# ---------------------------------------------------------------------------
 
 
 ## TO-DO: check which functions use this and replace with load_function in utils/general_utils.py
@@ -170,6 +178,11 @@ def dump_yaml(obj: dict, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         yaml.safe_dump(obj, f, sort_keys=False)
+
+
+# ---------------------------------------------------------------------------
+# Dataset directories and splits
+# ---------------------------------------------------------------------------
 
 
 def build_wins_feats_dirs(
@@ -280,6 +293,327 @@ def training_rows_with_augmentation(
             return sampled_train
 
     return candidate_df
+
+
+# ---------------------------------------------------------------------------
+# Utils for input data normalization
+# ---------------------------------------------------------------------------
+
+
+# Key of the fallback statistics, computed over the whole training split. Used
+# for groups (subjects) that appear at test time but not in the training split.
+GLOBAL_NORM_KEY = "__global__"
+
+# Supported normalization methods (experiment.normalization_kind):
+# 'zscore' centre on the mean, scale by the standard deviation.
+# 'minmax' map a percentile range onto [-1, 1] and clip.
+NORMALIZATION_METHODS = ("zscore", "minmax")
+
+DEFAULT_NORM_PERCENTILE = 97.5
+
+
+def _flatten_window_column(series: pd.Series) -> np.ndarray:
+    """Flatten a column holding one array per window into a 1-D array of samples."""
+    arrays = [np.asarray(value, dtype=np.float64).ravel() for value in series.to_numpy()]
+    if not arrays:
+        return np.empty(0, dtype=np.float64)
+    return np.concatenate(arrays)
+
+
+def fit_normalization_stats(
+    df_train: pd.DataFrame,
+    cols: List[str],
+    kind: str = "dl",
+    group_col: str = "subject_id",
+    eps: float = 1e-8,
+    method: str = "zscore",
+    percentile: float = DEFAULT_NORM_PERCENTILE,
+    clip_sigma: float = 0.0,
+) -> Dict[str, Dict[str, Dict[str, float]]]:
+    """Compute per-group, per-column normalization statistics from the training split.
+
+    The statistics are grouped by ``group_col`` (``subject_id`` by default), so
+    that pooled runs put every subject on a common scale instead of letting the
+    subject with the largest EMG amplitude dominate. Fitting only on the
+    training rows keeps validation and test data out of the statistics.
+
+    Parameters
+    ----------
+    df_train : pd.DataFrame
+        Training split (augmented rows included, they are training data).
+    cols : List[str]
+        Columns to normalize: the channel columns (``Ch_<i>_filt``) for DL runs,
+        the feature columns for ML runs.
+    kind : str
+        'dl' when each cell holds the array of samples of one window/channel,
+        'ml' when each cell holds a scalar feature.
+    group_col : str
+        Column defining the normalization groups. If missing from the DataFrame,
+        all rows are treated as a single group.
+    eps : float
+        Scales below this value are replaced by a unit scale, so that a constant
+        (e.g. disconnected) channel is centred but not amplified.
+    method : str
+        'zscore' subtracts the mean and divides by the standard deviation.
+        'minmax' maps the ``[100 - percentile, percentile]`` range onto [-1, 1].
+    percentile : float
+        Upper percentile bounding the min-max range, in (50, 100].
+        Ignored by 'zscore'.
+    clip_sigma : float
+        'zscore' only. When positive, the standardized values are clipped to
+        +/- this many standard deviations.
+
+    Returns
+    -------
+    dict
+        ``{group: {column: {...}}}``, always including the ``GLOBAL_NORM_KEY``
+        fallback group. Each column dict carries its own ``method`` key, so the
+        statistics describe how they must be applied.
+    """
+    if kind not in ("dl", "ml"):
+        raise ValueError(f"Unknown model kind for normalization: {kind}")
+    if method not in NORMALIZATION_METHODS:
+        raise ValueError(
+            f"Unknown normalization method '{method}'; expected one of {NORMALIZATION_METHODS}."
+        )
+    if not 50.0 < float(percentile) <= 100.0:
+        raise ValueError(
+            f"normalization_percentile must lie in (50, 100], got {percentile}."
+        )
+    if float(clip_sigma) < 0.0:
+        raise ValueError(
+            f"normalization_clip_sigma must be >= 0 (0 disables it), got {clip_sigma}."
+        )
+
+    if group_col in df_train.columns:
+        group_values = df_train[group_col].astype(str)
+        groups = list(pd.unique(group_values))
+    else:
+        print(
+            f"[NORMALIZATION] Column '{group_col}' not found: "
+            "computing a single set of statistics over the whole training split."
+        )
+        group_values = pd.Series(GLOBAL_NORM_KEY, index=df_train.index)
+        groups = []
+
+    stats: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for group in groups + [GLOBAL_NORM_KEY]:
+        rows = df_train if group == GLOBAL_NORM_KEY else df_train[group_values == group]
+        if rows.empty:
+            continue
+
+        group_stats: Dict[str, Dict[str, Any]] = {}
+        for col in cols:
+            values = _flatten_window_column(rows[col]) if kind == "dl" else rows[col].to_numpy(
+                dtype=np.float64
+            )
+            if method == "zscore":
+                std = float(np.std(values))
+                group_stats[col] = {
+                    "method": "zscore",
+                    "mean": float(np.mean(values)),
+                    "std": std if std > eps else 1.0,
+                    "clip_sigma": float(clip_sigma) if clip_sigma else 0.0,
+                    "n": int(values.size),
+                }
+            else:
+                lo = float(np.percentile(values, 100.0 - percentile))
+                hi = float(np.percentile(values, percentile))
+                span = hi - lo
+                if span <= eps:
+                    lo, hi, span = lo - 0.5, lo + 0.5, 1.0
+                group_stats[col] = {
+                    "method": "minmax",
+                    "lo": lo,
+                    "hi": hi,
+                    "span": span,
+                    "percentile": float(percentile),
+                    "n": int(values.size),
+                }
+        stats[group] = group_stats
+
+    return stats
+
+
+def apply_normalization_stats(
+    df: pd.DataFrame,
+    cols: List[str],
+    stats: Dict[str, Dict[str, Dict[str, float]]],
+    kind: str = "dl",
+    group_col: str = "subject_id",
+    split_name: str = "",
+) -> pd.DataFrame:
+    """Apply normalization statistics fitted on the training split.
+
+    The transform is read from the statistics themselves (their ``method`` key),
+    so a set of statistics can only ever be applied the way it was fitted.
+
+    Returns a copy of ``df`` with ``cols`` normalized in place of the original
+    values; every other column is left untouched.
+    """
+    if df is None or df.empty:
+        return df
+
+    df = df.copy()
+    if group_col in df.columns:
+        group_values = df[group_col].astype(str).to_numpy()
+    else:
+        group_values = np.full(len(df), GLOBAL_NORM_KEY, dtype=object)
+
+    group_positions = {}
+    for group in np.unique(group_values):
+        if group not in stats:
+            print(
+                f"[NORMALIZATION] {split_name or 'split'}: no training statistics for "
+                f"'{group}', falling back to the pooled training statistics."
+            )
+        group_positions[group] = np.flatnonzero(group_values == group)
+
+    for col in cols:
+        col_values = df[col].to_numpy(copy=True)
+        for group, positions in group_positions.items():
+            col_stats = stats.get(group, stats[GLOBAL_NORM_KEY])[col]
+            if col_stats.get("method", "zscore") == "zscore":
+                mean, std = col_stats["mean"], col_stats["std"]
+                sigma = float(col_stats.get("clip_sigma", 0.0))
+                if sigma > 0.0:
+                    transform = lambda v: np.clip((v - mean) / std, -sigma, sigma)
+                else:
+                    transform = lambda v: (v - mean) / std
+            else:
+                lo, span = col_stats["lo"], col_stats["span"]
+                transform = lambda v: np.clip(2.0 * (v - lo) / span - 1.0, -1.0, 1.0)
+
+            if kind == "dl":
+                for pos in positions:
+                    window = np.asarray(col_values[pos], dtype=np.float32)
+                    col_values[pos] = transform(window)
+            else:
+                col_values[positions] = transform(col_values[positions])
+        df[col] = col_values
+
+    return df
+
+
+def normalize_datasets(
+    df_train: pd.DataFrame,
+    df_val: pd.DataFrame,
+    df_test: pd.DataFrame,
+    cols: List[str],
+    kind: str = "dl",
+    group_col: str = "subject_id",
+    method: str = "zscore",
+    percentile: float = DEFAULT_NORM_PERCENTILE,
+    clip_sigma: float = 0.0,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Dict[str, Dict[str, float]]]]:
+    """Normalize train/val/test using statistics fitted on the training split only.
+
+    See :func:`fit_normalization_stats` for the grouping semantics and for the
+    two available methods. Returns the three normalized splits plus the
+    statistics, so they can be saved next to the fold checkpoint.
+    """
+    stats = fit_normalization_stats(
+        df_train, cols, kind=kind, group_col=group_col, method=method,
+        percentile=percentile, clip_sigma=clip_sigma,
+    )
+
+    groups = [g for g in stats if g != GLOBAL_NORM_KEY]
+    if method == "zscore":
+        scale = "z-score" + (f" clipped at +/-{clip_sigma:g} sigma" if clip_sigma else "")
+    else:
+        scale = f"min-max on the [{100.0 - percentile:g}, {percentile:g}] percentile range"
+    print(
+        f"[NORMALIZATION] {scale} of {len(cols)} '{kind}' columns, "
+        f"grouped by '{group_col}' ({len(groups)} group(s): {groups}), "
+        "statistics fitted on the training split."
+    )
+
+    df_train = apply_normalization_stats(
+        df_train, cols, stats, kind=kind, group_col=group_col, split_name="train"
+    )
+    df_val = apply_normalization_stats(
+        df_val, cols, stats, kind=kind, group_col=group_col, split_name="val"
+    )
+    df_test = apply_normalization_stats(
+        df_test, cols, stats, kind=kind, group_col=group_col, split_name="test"
+    )
+
+    return df_train, df_val, df_test, stats
+
+
+def apply_datasets_normalization(
+    model_master,
+    base_config: dict,
+    save_model_path: Optional[Path] = None,
+    group_col: str = "subject_id",
+) -> bool:
+    """Normalize the splits held by ``model_master`` when the config asks for it.
+
+    Enabled by ``experiment.data_normalization: true`` in the base config. The
+    normalized columns are the ones the model actually consumes (channels for
+    DL runs, features for ML runs), normalized per subject and per column with
+    statistics fitted on the training split. Two further keys select the
+    transform:
+
+    ``experiment.normalization_kind``       'zscore' (default) or 'minmax'
+    ``experiment.normalization_percentile`` upper bound of the min-max range,
+                                            default DEFAULT_NORM_PERCENTILE
+    ``experiment.normalization_clip_sigma`` z-score clip in standard deviations,
+                                            default 0 (disabled)
+
+    ``utils/II_feature_extraction/amplitude_percentile_analysis.py`` measures the
+    last two from a dataset.
+
+    Must be called before ``remap_all_datasets()``, which drops ``subject_id``
+    from the splits.
+
+    Returns True when normalization was applied.
+    """
+    experiment_cfg = base_config.get("experiment", {})
+    if not bool(experiment_cfg.get("data_normalization", False)):
+        return False
+
+    method = str(experiment_cfg.get("normalization_kind", "zscore")).strip().lower()
+    percentile = float(experiment_cfg.get("normalization_percentile", DEFAULT_NORM_PERCENTILE))
+    clip_sigma = float(experiment_cfg.get("normalization_clip_sigma", 0.0))
+
+    cols = model_master.extract_dataset_train_columns()
+    df_train, df_val, df_test, stats = normalize_datasets(
+        model_master.df_train,
+        model_master.df_val,
+        model_master.df_test,
+        cols,
+        kind=model_master.kind,
+        group_col=group_col,
+        method=method,
+        percentile=percentile,
+        clip_sigma=clip_sigma,
+    )
+    model_master.df_train = df_train
+    model_master.df_val = df_val
+    model_master.df_test = df_test
+
+    save_normalization_stats(stats, save_model_path)
+    return True
+
+
+def save_normalization_stats(
+    stats: Dict[str, Dict[str, Dict[str, float]]], save_model_path: Optional[Path]
+) -> None:
+    """Dump the fold statistics next to the fold checkpoint, as JSON."""
+    if save_model_path is None:
+        return
+    save_model_path = Path(save_model_path)
+    out_path = save_model_path.with_name(save_model_path.stem + "_normalization.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(stats, f, indent=2, sort_keys=True)
+    print(f"[NORMALIZATION] statistics -> {out_path}")
+
+
+# ---------------------------------------------------------------------------
+# Seeding and session discovery
+# ---------------------------------------------------------------------------
 
 
 def reset_all_seeds():

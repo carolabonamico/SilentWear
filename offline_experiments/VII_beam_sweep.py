@@ -17,6 +17,16 @@ Decode parameters do not affect training: the trained CTC acoustic model
 model for every beam setting is pure waste. This tool instead sweeps decode
 parameters over **cached test-set log-probs**, dumped once during a normal run.
 
+It answers two things at once:
+  * why plain prefix beam search ~ greedy (run it with only ``--beam_widths`` and
+    watch the metrics not move), and
+  * which parameters recover the gap. The prefix beam search was extended
+    (models/ctc_decoding.py) with three scoring terms that make it diverge from
+    the argmax path on peaky CTC posteriors:
+      - ``temperature``    (T > 1 flattens the posteriors so alignments matter),
+      - ``blank_penalty``  (counters CTC's blank/deletion bias),
+      - ``length_bonus``   (word/insertion bonus, counters short-output bias).
+
 Both tasks are scored from the same dump:
   * recognition  -> WER / CER (free-character decode, closed-set references),
   * classification -> accuracy (decoded text mapped to the nearest lexicon label).
@@ -50,6 +60,7 @@ import json
 import sys
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
+import editdistance
 
 import numpy as np
 
@@ -60,15 +71,17 @@ from models.ctc_decoding import ctc_prefix_beam_search, ctc_greedy_decode
 from models.utils import compute_wer_metrics
 from utils.I_data_preparation.text_transform import CTCTextTransform
 
-try:
-    import editdistance
-except ImportError:  # pragma: no cover - editdistance is a project dependency
-    editdistance = None
+DEFAULT_BEAM_WIDTH=[5, 10, 25]
+DEFAULT_TEMPERATURES=[1.0, 1.3, 1.6, 2.0]
+DEFAULT_BLANK_PENALTIES=[0.0, 1.0, 2.0]
+DEFAULT_LENGTH_BONUSES=[0.0, 0.5, 1.0]
 
 
-# ----------------------------------------------------------------------------- #
-# Offline text mapper (rebuilt from the dump metadata, no data pipeline needed)
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# Offline mapper
+# ---------------------------------------------------------------------------
+
+
 class OfflineCTCMapper:
     """Minimal token<->text mapper reconstructed from a dump's ``.meta.json``.
 
@@ -87,6 +100,9 @@ class OfflineCTCMapper:
         self.text_to_label_map = {text: label for label, text in self.label_to_text_map.items()}
         self.label_mode = meta.get("label_mode")
         self.task = meta.get("task", "recognition")
+        self.word_vocabulary = tuple(
+            sorted({w for text in self.label_to_text_map.values() for w in text.split()})
+        )
 
     @staticmethod
     def clean_text(text: str) -> str:
@@ -124,9 +140,9 @@ class OfflineCTCMapper:
         return preds
 
 
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Dump loading
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 def _discover_dumps(paths: Sequence[Path]) -> List[Path]:
     """Expand files / directories / globs into a sorted list of *_logprobs.npz."""
     found: List[Path] = []
@@ -185,9 +201,10 @@ def load_dumps(paths: Sequence[Path]) -> Tuple[List[np.ndarray], np.ndarray, dic
     return seqs, np.asarray(labels, dtype=np.int64), meta0
 
 
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Decoding (single sample)
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
 
 _SEQS: List[np.ndarray] = []
 _BLANK_ID: int = 0
@@ -212,9 +229,9 @@ def _decode_index(args: Tuple[int, "DecodeCombo"]) -> List[int]:
     return _decode_seq(_SEQS[idx], combo, _BLANK_ID)
 
 
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Sweep
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 class DecodeCombo:
     __slots__ = ("decode", "beam_width", "temperature", "blank_penalty", "length_bonus")
 
@@ -269,7 +286,7 @@ def evaluate_combo(
     hyps = [mapper.ids_to_text(ids) for ids in decoded_ids]
     refs = mapper.label_int_to_texts(labels.tolist())
 
-    rec_metrics, _, _ = compute_wer_metrics(refs, hyps, verbose=False)
+    rec_metrics, _, _ = compute_wer_metrics(refs, hyps, verbose=False, vocabulary=mapper.word_vocabulary)
 
     # Classification:
     preds = np.asarray(mapper.texts_to_label_int(hyps, allow_nearest=allow_nearest), dtype=np.int64)
@@ -294,6 +311,8 @@ def evaluate_combo(
             "balanced_wer": round(rec_metrics["balanced_wer"], 4),
             "cer": round(rec_metrics["cer"], 4),
             "balanced_cer": round(rec_metrics["balanced_cer"], 4),
+            "vocab_wer": round(rec_metrics["vocab_wer"], 4),
+            "balanced_vocab_wer": round(rec_metrics["balanced_vocab_wer"], 4),
             "cls_accuracy": round(acc, 4),
             "cls_balanced_accuracy": round(bal_acc, 4),
             "empty_rate": round(empty_rate, 4),
@@ -329,9 +348,9 @@ def run_sweep(seqs, labels, mapper, combos, allow_nearest, jobs) -> List[dict]:
     return rows
 
 
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Reporting
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 def write_csv(rows: List[dict], out_path: Path) -> None:
     import csv
 
@@ -339,6 +358,7 @@ def write_csv(rows: List[dict], out_path: Path) -> None:
     fieldnames = [
         "decode", "beam_width", "temperature", "blank_penalty", "length_bonus",
         "n_samples", "wer", "balanced_wer", "cer", "balanced_cer",
+        "vocab_wer", "balanced_vocab_wer",
         "cls_accuracy", "cls_balanced_accuracy", "empty_rate",
     ]
     with out_path.open("w", newline="") as f:
@@ -371,19 +391,19 @@ def report(rows: List[dict], mapper: OfflineCTCMapper, top_n: int) -> None:
         print(f"\n[baseline] greedy: {rec_key}={g[rec_key]} acc={g['cls_accuracy']}")
 
 
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # CLI
-# ----------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dumps", nargs="+", type=Path, required=True,
                     help="Dump .npz files, directories to search, or globs (*_logprobs.npz).")
     ap.add_argument("--out", type=Path, required=True, help="Output CSV path.")
 
-    ap.add_argument("--beam_widths", nargs="+", type=int, default=[5, 10, 25])
-    ap.add_argument("--temperatures", nargs="+", type=float, default=[1.0, 1.3, 1.6, 2.0])
-    ap.add_argument("--blank_penalties", nargs="+", type=float, default=[0.0, 1.0, 2.0])
-    ap.add_argument("--length_bonuses", nargs="+", type=float, default=[0.0, 0.5, 1.0])
+    ap.add_argument("--beam_widths", nargs="+", type=int, default=DEFAULT_BEAM_WIDTH)
+    ap.add_argument("--temperatures", nargs="+", type=float, default=DEFAULT_TEMPERATURES)
+    ap.add_argument("--blank_penalties", nargs="+", type=float, default=DEFAULT_BLANK_PENALTIES)
+    ap.add_argument("--length_bonuses", nargs="+", type=float, default=DEFAULT_LENGTH_BONUSES)
 
     ap.add_argument("--no_greedy", dest="include_greedy", action="store_false",
                     help="Skip the greedy baseline row (included by default).")

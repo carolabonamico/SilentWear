@@ -26,6 +26,11 @@ from models.strategies import TaskStrategy, CTCStrategy, CTCRecognitionStrategy
 DEFAULT_EARLY_STOP_PATIENCE = 5  # default value if not specified in train_cfg
 
 
+# ---------------------------------------------------------------------------
+# Trainer
+# ---------------------------------------------------------------------------
+
+
 class TorchTrainer:
     def __init__(self, estimator, df_train, df_val, df_test, train_cfg, label_col,
                  strategy: TaskStrategy, train_label_map: Optional[Dict[int, str]] = None):
@@ -300,7 +305,7 @@ class TorchTrainer:
 
             # ----- Selection metric: WER/CER for recognition, else val loss -----
             if recog_strategy is not None:
-                val_metrics, _, _ = compute_wer_metrics(val_refs, val_hyps, verbose=False)
+                val_metrics, _, _ = compute_wer_metrics(val_refs, val_hyps, verbose=False, vocabulary=recog_strategy.word_vocabulary)
                 monitor = float(val_metrics[recog_strategy.primary_metric])
                 val_accuracy = float(np.mean([r == h for r, h in zip(val_refs, val_hyps)])) if val_refs else 0.0
                 metric_str = (
@@ -514,7 +519,9 @@ class TorchTrainer:
         print("Split integrity check complete.\n")
 
 
-################################################### Standalone functions ########################
+# ---------------------------------------------------------------------------
+# CTC dumps and prediction files
+# ---------------------------------------------------------------------------
 
 
 def _dump_ctc_logprobs(
@@ -624,6 +631,11 @@ def _write_pred_txt(
     print(f"[PRED] per-sample predictions ({task}) -> {pred_txt_path} (+ .csv)")
 
 
+# ---------------------------------------------------------------------------
+# Evaluation
+# ---------------------------------------------------------------------------
+
+
 def _label_ints_to_texts(mapper, label_ints) -> List[str]:
     """Map class label ids to their lexicon text, marking unmatched (-1) samples."""
     return [
@@ -683,7 +695,7 @@ def evaluate_model(
             _write_pred_txt(pred_txt_path, "recognition", references, hypotheses, cls_outputs)
         if not references:
             return None, None, None
-        metrics, refs, hyps = compute_wer_metrics(references, hypotheses)
+        metrics, refs, hyps = compute_wer_metrics(references, hypotheses, vocabulary=strategy.word_vocabulary)
         return metrics, np.asarray(refs), np.asarray(hyps)
 
     all_targets = []

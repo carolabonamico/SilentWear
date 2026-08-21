@@ -1,0 +1,111 @@
+\documentclass{article}
+
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{svg}
+\usepackage[labelfont=bf]{caption}
+\usepackage{subcaption}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{authblk}
+\usepackage[hidelinks]{hyperref}
+\usepackage[letterpaper,textwidth=18cm,textheight=25cm]{geometry}
+\usepackage{titling}
+\usepackage[backend=biber]{biblatex}
+\usepackage{xcolor}
+\usepackage{siunitx}
+\usepackage{titlesec}
+
+\addbibresource{bibliography.bib}
+\renewcommand*{\bibfont}{\footnotesize}
+
+\newcommand{\logo}[1]{%
+  \postauthor{%
+  \end{tabular}\par\end{center}
+  \begin{center}
+  \includegraphics[scale=0.25]{#1}
+  \end{center}
+  }%
+}
+
+\newcommand{\giovanni}[1]{\textcolor{red}{[\textbf{Giovanni}: #1]}}
+
+\title{From Biosignals to Words: Exploiting Novel Deep Learning Architectures for Speech Understanding}
+\author{Student: Bonamico Carola \\
+Supervisors: Burrello Alessio, Jahier Pagliari Daniele, Pollo Giovanni}
+\logo{images/Logo_PoliTo_dal_2021_blu.png}
+\date{Graduation session: September 2026}
+
+\renewcommand*{\Authands}{, }
+
+\titlespacing*{\section}{0pt}{3.5pt}{2.5pt}
+\titlespacing*{\subsection}{0pt}{0.35em}{0.2em}
+\setlength{\parskip}{0pt}
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+Speech-based communication can become ineffective in acoustically challenging environments, where silence or privacy is required, or for individuals who have lost the ability to phonate. Silent speech interfaces (SSIs) address these limitations by capturing the biosignals associated with speech production and decoding them into text without an audible acoustic signal. Among the available sensing modalities, surface electromyography (sEMG) recorded from the neck is well suited to wearable systems: it is non-invasive, captures the muscular activity involved in articulation, and works even when words are silently mouthed.
+Wearable sEMG-based systems, however, remain largely limited to closed-vocabulary recognition of isolated commands: AlterEgo recognizes ten digits from a rigid face-and-neck apparatus~\cite{Kapur2018_AlterEgo}, and SilentWear~\cite{Spacone2026_SilentWear}, the ultra-low-power platform this work builds on, eight commands from a dry-electrode neckband. Open-vocabulary recognition exists at the other extreme, on hours of single-speaker recordings decoded by large offline models~\cite{Gaddy2020_DigitalVoicing}. Sentence-level silent speech recognition (SSR) on wearable devices across multiple speakers and repositioned sensors remains largely unexplored.
+This thesis addresses this gap through three main contributions. First, a multimodal dataset was collected from seven participants over six sessions each, with the sensors repositioned between sessions. The dataset includes synchronized sEMG, EEG, and audio recordings. Second, different signal representations and decoding strategies are evaluated, including a comparison between recurrent and Transformer-based sequence models under two decoding criteria applied to the same model outputs. Third, a causal, rule-based algorithm detects the utterance boundaries in the sEMG, without the visual trigger used to segment the recordings, and is evaluated as a binary speech-versus-rest classifier.
+
+\section{Background and Related work}
+
+Wearable sEMG interfaces have moved from wet electrodes on rigid mounts~\cite{Kapur2018_AlterEgo} to dry electrodes in earmuffs and textile neckbands. SilentWear uses a 14-channel fully dry neckband connected to BioGAP-Ultra~\cite{Frey2026_BioGAPUltra}, an ultra-low-power biosignal platform. Data is processed directly on device, with a power consumption of \SI{20.5}{\milli\watt}, and the sensor can be repositioned between sessions~\cite{Spacone2026_SilentWear}. Its 15\,489 parameter classifier reports \SI{84.8}{\percent} accuracy on eight vocalized commands and \SI{77.5}{\percent} on silent ones, falling to \SI{71.1}{\percent} and \SI{59.3}{\percent} across sessions. At the opposite extreme, Gaddy and Klein decode open-vocabulary English from face and neck EMG at \SI{68.0}{\percent} WER, on hours of a single speaker and with the rate scored on an automatic transcription of resynthesized audio; the same system reaches \SI{3.6}{\percent} on a closed vocabulary of date and time expressions, there scored by a human listener~\cite{Gaddy2020_DigitalVoicing}.
+
+\section{Methodology}
+
+\textit{Corpus.} A protocol was designed \emph{de novo} from a survey of twenty published data collections. Seven healthy participants (two females and five males) recorded six sessions each, at least 24\,h apart, with both devices removed and repositioned between them. Each session records fifteen isolated words and twenty human-machine-interaction sentences, ten repetitions of each, once vocalized and once silently, resulting in 700 utterances per session and 29\,400 in total, approximately 39\,h 40\,min of recording. The twenty sentences were selected from 367 candidates under a lexical-overlap criterion, so the closed set cannot be reduced to detecting one discriminative word. Two BioGAP-Ultra units~\cite{Frey2026_BioGAPUltra} ran in parallel from a single host, one on the sEMG neckband and one on an EEG headband, each with its own microphone, so every utterance is acquired on both devices at once, as sEMG with audio and as EEG with audio. Both units stream over their own BLE link to BioGUI~\cite{Orlandi2024_BioGUI}, the acquisition software that starts them with a single command and writes one binary file per source. The decoding of this thesis reads the sEMG alone. The EEG and the two microphones are recorded, aligned and released with the corpus, and left to the sensor fusion of future work.
+
+\textit{Acquisition-chain characterisation.} The acquisition setup consists of two independent devices, making accurate synchronization essential to ensure data consistency. More specifically, synchronization is performed at two levels: intra-board alignment, which synchronizes signals acquired by the same device, and inter-board alignment, which synchronizes signals acquired by different devices. To validate the synchronization protocols, we conducted an experiment under controlled conditions. A signal generator producing sinusoidal waves was used to stimulate one EMG channel and one EEG channel on each device, while a speaker simultaneously generated an audible signal that was captured by the microphones. Multiple acquisition runs, each lasting approximately one hour, were performed to assess both the initial synchronization offset and any potential drift over time. The results showed a consistent delay of approximately 7.7 ms between signals acquired by the same device.
+
+
+
+\textit{Pipeline and models.} Each recording is preprocessed using a fourth-order Butterworth high-pass filter with a cutoff frequency of 20Hz, followed by a 50Hz notch filter. The filtered signals are then segmented into 2-second windows corresponding to individual utterances. To evaluate the impact of different input representations on model accuracy, the dataset is processed using three alternative representations: raw signals, STFT spectrograms, and Mel-frequency cepstral (MFCC) features. All evaluated neural networks share the same convolutional backbone, adapted from \cite{Spacone2026_SilentWear}, followed by either a two-layer bidirectional LSTM (BiLSTM) or a Transformer encoder. Two decoders are used: greedy search and prefix beam search. The beam search is tuned via blank penalty, length bonus, and softmax temperature; the optimal hyperparameters (beam width, temperature, blank penalty) differ slightly across models and protocols and are tuned separately for each. The resulting architectures contain 910\,328 and 909\,816 trainable parameters, respectively. All models are subject-dependent, meaning a separate model is trained and evaluated for each of the seven participants, and every percentage reported below is a mean across participants.
+
+
+\textit{Classification vs. Continuous Recognition.} For the experimental evaluation, we focus on the most complex type of utterance included in the dataset, namely sentences. Two different recognition tasks are considered: i) sentence classification and ii) continuous character recognition. For sentence classification, models are trained and evaluated using both Cross-Entropy (CE) and Connectionist Temporal Classification (CTC) losses, while continuous character recognition relies exclusively on CTC.
+For both tasks, two evaluation protocols are adopted: a five-fold cross-validation over all the sessions of a participant, with the folds stratified by session and class, and a leave-one-session-out cross-validation over the same sessions, referred to as the \textit{global} and \textit{inter-session} protocols, respectively.
+
+\textit{Automatic onset detection.} The automatic onset detection algorithm is a causal, rule-based algorithm defined to locate utterance boundaries in the filtered sEMG channels, without relying on the visual trigger used to window the data. It uses fixed parameters and the same detection procedure across all participants, sessions, and speaking conditions. It is evaluated as a binary speech-versus-rest classifier scored against the original trigger. Its output is used only to assess the accuracy of the automatic onset detection procedure and is not used as input for training any of the models reported in this thesis. %\giovanni{parte finale da riscrivere perchè troppo tecnica e poco chiara}
+
+\section{Experimental results}
+
+\textit{Baseline and objective function validation.} The first evaluation focused on reproducing the SpeechNet baseline~\cite{Spacone2026_SilentWear} to validate the framework. This architecture uses a cross-entropy (CE) objective on the word task, reaching 72.8\,\% accuracy for vocalized speech and 63.5\,\% for silent speech under the inter-session protocol. 
+However, since the model is trained with CE on words, it does not support recursive character-level recognition.
+To bridge this gap, a CTC objective is applied on the SpeechNet backbone~\cite{Spacone2026_SilentWear}, but under greedy decoding it causes the inter-session accuracy to collapse to 44.0\,\% for vocalized speech and 36.8\,\% for silent speech. Relaxing the temporal pooling and introducing a BiLSTM sequence model allows the architecture to successfully support CTC. This upgrade improves classification, as CTC leverages sub-word structures to outperform CE by up to 15.6\,\% on sentences (83.9\,\% inter-session vocalized accuracy, greedy decoding), and enables unconstrained recognition.
+\textit{Feature extraction.} Having established a functional sequence-modeling baseline, the next analysis focuses on the impact of features extracted from the raw time signal, the STFT power spectrogram, and the MFCC. Using the BiLSTM architecture under the inter-session protocol (greedy decoding), the STFT reaches 83.9\,\% accuracy for vocalized speech and 77.9\,\% for silent speech, outperforming the raw time signals, which stop at 76.7\,\% (vocalized) and 60.8\,\% (silent). The MFCC configuration with 64 filters and 40 coefficients performs worse, reaching 52.8\,\% accuracy for vocalized speech and 50.6\,\% for silent speech. Refitting these constants to the specific EMG bandwidth (15 filters, 10 coefficients) recovers performance, reaching 68.3\,\% (vocalized) and 66.6\,\% (silent). However, this optimized MFCC still leaves a residual inter-session accuracy gap of 15.6\,\% and 11.3\,\% against the STFT on the recurrent model. The STFT also performs best on the recognition task, where, still under greedy decoding, the optimized MFCC increases the inter-session silent WER by up to 5.8\,\%. Consequently, the STFT is fixed as the standard input representation.
+\textit{Task-dependent architecture evaluation.} With the STFT fixed, the BiLSTM is compared against a Transformer encoder at an equal parameter count. Despite sharing the same input and training methodology, on the closed-set classification task (greedy decoding), the Transformer encoder consistently leads. It outperforms the BiLSTM in the inter-session protocol by 1.9\,\%, reaching 85.8\,\% against 83.9\,\% for vocalized speech, and by 4.2\,\%, reaching 82.1\,\% against 77.9\,\% for silent speech. On the contrary, for open-vocabulary recognition, the BiLSTM achieves lower WER that the Transformer encoder, with and advantage of up to 8.3\,\% in WER across sessions. Thus, the optimal architecture is task-specific: the Transformer encoder for classification, and the recurrent BiLSTM block for recognition.
+
+
+\textit{Overall system performance.} Using these optimized configurations, comprising approximately 910\,k parameters and no external language model, the system yields strong results on the 21-class sentence corpus under the inter-session scenario. For the classification task, under greedy decoding, the Transformer reaches an inter-session accuracy of 85.8\,\% for vocalized speech and 82.1\,\% for silent speech; tuned beam search raises the overall accuracy to 84.8\,\%. For the recognition task, the BiLSTM yields a WER of 15.9\,\% for vocalized speech and 21.5\,\% for silent speech across sessions. Notably, the inter-session accuracy gap between silent and vocalized speech is narrowed to just 3.7\,\%, a significant improvement over the baseline.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=1\linewidth]{images/fig_confusion_row_inter_session.pdf}
+  \caption{\textbf{Confusion matrices per participant, best-performing model.} Transformer encoder, closed-set, inter-session protocol, vocalized condition (21 classes, rest at index~0, 2\,400 test windows/participant). Rows are references, columns predictions; panel titles give the accuracy, which is 85.8\,\% on average.}
+  \label{fig:confusion}
+\end{figure}
+
+\textit{Onset detection.} The analysis performed on the onset detection algorithm showed that articulation begins at a median of 0.31\,s after the trigger, and the per-participant medians differ by up to 0.41\,s. The causal detector recovers onsets from 14 sEMG channels with 97.3\% recall, 93.6\% specificity, and a 6.4\% false positive rate.
+
+\section{Conclusions}
+
+This thesis addresses the problem of SSR using non-invasive biosignals, with a focus on surface electromyography (sEMG). The first contribution is the collection of a multimodal dataset on 7 subjects comprising synchronized sEMG, EEG, and audio recordings. The second contribution is a comprehensive analysis of deep-learning architectures for SSR, ranging from recurrent models based on LSTMs to Transformer-based approaches. The Transformer encoder proved optimal for closed-set sentence classification, while the BiLSTM was required for continuous, open-vocabulary recognition. A third contribution is a causal, rule-based onset detector, evaluated independently on the sEMG signal.
+
+Future work will focus on further improving recognition performance, for instance by integrating a language model to refine and correct the predicted sequences. In addition, the complete inference pipeline will be ported to an ultra-low-power RISC-V System-on-Chip (SoC), with the goal of enabling efficient on-device execution. Building on the onset detector, future work will also target its integration as an online, trigger-free mechanism, enabling continuous sEMG signal streaming directly into the recognition pipeline.
+
+\section*{References}
+
+\vspace{4.5pt}
+
+{\scriptsize\setlength{\bibitemsep}{4pt}\setlength{\bibhang}{0.8em}
+\printbibliography[heading=none]}
+
+\end{document}

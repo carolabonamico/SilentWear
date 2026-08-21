@@ -47,6 +47,11 @@ BIO_RE = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# .bio readers
+# ---------------------------------------------------------------------------
+
+
 def read_bio_file_paper_dataset(file_path: str) -> dict:
     """
     Parameters
@@ -205,6 +210,11 @@ def read_bio_file(file_path: str) -> dict:
     return signals
 
 
+# ---------------------------------------------------------------------------
+# Single recording processing
+# ---------------------------------------------------------------------------
+
+
 def read_single_recording(
     bio_file_path,
     session_id,
@@ -244,6 +254,11 @@ def read_single_recording(
     # drop channel 12 and 13
     print(emg_df["session_id"])
     return emg_df
+
+
+# ---------------------------------------------------------------------------
+# File discovery and naming
+# ---------------------------------------------------------------------------
 
 
 def find_bio_file(data_dir_raw, subject, condition, session_id, batch_id):
@@ -307,6 +322,11 @@ def update_index_csv(index_csv_path: Path, rows: list[dict]):
         drop=True
     )
     df.to_csv(index_csv_path, index=False)
+
+
+# ---------------------------------------------------------------------------
+# Batch processing
+# ---------------------------------------------------------------------------
 
 
 def process_all_recordings_for_subject(
@@ -434,6 +454,11 @@ def process_all_recordings_for_subject(
     print(f"Index CSV: {index_csv_path}")
 
 
+# ---------------------------------------------------------------------------
+# Diagnostics
+# ---------------------------------------------------------------------------
+
+
 def data_losses_check(counter):
     """
     Docstring for data_losses_check
@@ -486,6 +511,11 @@ def print_label_statistics(emg_df):
     print(segment_counts)
 
     print("\n=================================================\n")
+
+
+# ---------------------------------------------------------------------------
+# Dataset preparation
+# ---------------------------------------------------------------------------
 
 
 def prepare_dataset(signals, hp_cutoff, notch_cutoff, label_mode: str = "word"):

@@ -43,6 +43,7 @@ from offline_experiments.Model_Master import Model_Master
 from models.seeds import TORCH_MANUAL_SEED, RANDOM_SEED, RGN_SEED
 from utils.general_utils import load_all_h5files_from_folder, print_dataset_summary_statistics
 from offline_experiments.general_utils import *
+from offline_experiments.explainability import maybe_run_explainability
 
 
 class Global_Model_Trainer:
@@ -66,6 +67,9 @@ class Global_Model_Trainer:
         self.model_name = self.model_config["model"]["name"]
         self.window_size_ms = int(float(self.base_config["window"]["window_size_s"]) * 1000)
         self.include_rest = bool(self.base_config["experiment"]["include_rest"])
+        self.data_normalization = bool(
+            self.base_config["experiment"].get("data_normalization", False)
+        )
 
         # model_name_id is the stable grouping key used by analysis (e.g., w1400ms).
         self.model_name_id = self.base_config.get("model_name_id", f"w{self.window_size_ms}ms")
@@ -136,6 +140,7 @@ class Global_Model_Trainer:
                 "window_size_ms": self.window_size_ms,
                 "include_rest": self.include_rest,
                 "label_mode": label_mode,
+                "data_normalization": self.data_normalization,
                 "cv_type": self.base_config.get("cv", {}),
                 "loss_name": loss_name,
                 "loss_cfg": loss_cfg,
@@ -349,11 +354,20 @@ class Global_Model_Trainer:
         self.model_master.df_val = val_df
         self.model_master.df_test = test_df
 
+        save_model_path = self.model_dire / f"{mode}_fold_{fold_id+1}"
+
+        apply_datasets_normalization(self.model_master, self.base_config, save_model_path)
+
         if getattr(self.model_master, "kind", None) == "ml":
             if self.model_config.get("model", {}).get("features", {}).get("scale_feats", False):
                 feat_cols = self.model_master.extract_dataset_train_columns()
                 scaler = StandardScaler()
 
+                train_df, val_df, test_df = (
+                    self.model_master.df_train,
+                    self.model_master.df_val,
+                    self.model_master.df_test,
+                )
                 train_df.loc[:, feat_cols] = scaler.fit_transform(train_df[feat_cols])
                 val_df.loc[:, feat_cols] = scaler.transform(val_df[feat_cols])
                 test_df.loc[:, feat_cols] = scaler.transform(test_df[feat_cols])
@@ -362,9 +376,16 @@ class Global_Model_Trainer:
         self.model_master.remap_all_datasets()
         self.model_master.register_model()
 
-        save_model_path = self.model_dire / f"{mode}_fold_{fold_id+1}"
         model, metrics, y_true, y_pred = self.model_master.train_model(
             test=True, save_model_path=save_model_path
+        )
+
+        maybe_run_explainability(
+            self.model_master,
+            self.base_config,
+            df_trainval=pd.concat([self.model_master.df_train, self.model_master.df_val]),
+            df_test=self.model_master.df_test,
+            out_dir=self.model_dire / "explainability" / f"fold_{fold_id+1}",
         )
 
         row_summary: Dict[str, Any] = {

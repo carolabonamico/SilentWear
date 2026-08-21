@@ -1,6 +1,9 @@
 Layer_Name,Layer_Type,Parameters_Count
 GLOBAL_SUMMARY,Total_Parameters,742896
 GLOBAL_SUMMARY,Trainable_Parameters,742896
+GLOBAL_SUMMARY,Input_Shape,"(1, 14, 1000)"
+GLOBAL_SUMMARY,Conv_Input_Shape,"(1, 1, 14, 1000)"
+GLOBAL_SUMMARY,Forward_FLOPs_per_sample,126152192
 blocks.0.0,Conv2d,96
 blocks.0.1,BatchNorm2d,32
 blocks.0.2,ReLU,0

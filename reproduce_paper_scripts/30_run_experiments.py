@@ -73,7 +73,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from utils.general_utils import window_ms_from_cfg
-from utils.I_data_preparation.read_bio_file import parse_bio_filename
 from offline_experiments.I_global_models import Global_Model_Trainer
 from offline_experiments.II_inter_session_models import Inter_Session_Model_Trainer
 from offline_experiments.III_train_from_scratch import TrainFromScratch_Model_Trainer
@@ -82,10 +81,21 @@ from offline_experiments.V_sessions_count_ablation import Session_Count_Ablation
 from offline_experiments.VI_data_augmentation_ablation import Data_Augmentation_Ablation_Trainer
 from offline_experiments.general_utils import discover_sessions
 
+
+# ---------------------------------------------------------------------------
+# Defaults
+# ---------------------------------------------------------------------------
+
+
 DEFAULT_EXPERIMENTS = ["global", "inter_session", "inter_session_ft", "train_from_scratch", "data_augmentation_ablation", "session_count_ablation"]
 DEFAULT_SUBJECTS = ["S01", "S02", "S03", "S04"]
 DEFAULT_CONDITIONS = ["silent", "vocalized"]
 AUGMENTATION_MODE_CHOICES = ["augmented_size", "original_size"]
+
+
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
 
 
 def _apply_open_release_overrides(base_cfg: dict, data_dir: Path, artifacts_dir: Path) -> dict:
@@ -143,6 +153,11 @@ def _expand_windows_s(vals: List[float], step: float) -> List[float]:
         out.append(round(end, 3))
 
     return out
+
+
+# ---------------------------------------------------------------------------
+# Experiment drivers
+# ---------------------------------------------------------------------------
 
 
 def _run_one_subject_condition(
@@ -285,6 +300,11 @@ def run_all_subjects(
     raise ValueError(f"Experiment '{experiment}' does not support pooled mode via run_all_subjects.")
 
 
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
 def main():
     ap = argparse.ArgumentParser()
 
@@ -357,6 +377,14 @@ def main():
     ap.add_argument("--plot_loss", action="store_true", help="Save epoch-by-epoch training/val loss curves")
     ap.add_argument("--plot_scatter", action="store_true", help="Generate final scatter plots for ablation results")
 
+    # Explainability flags (global / inter_session SpeechNet only)
+    ap.add_argument("--explain_embeddings", action="store_true",
+                    help="Extract layer embeddings and run UMAP/t-SNE/PCA + centroid-margin analysis per fold")
+    ap.add_argument("--explain_methods", nargs="+", choices=["umap", "tsne", "pca"],
+                    default=["umap", "tsne", "pca"], help="Dimensionality-reduction methods")
+    ap.add_argument("--explain_layers", nargs="+", choices=["pre_bilstm", "pre_fc"],
+                    default=["pre_bilstm", "pre_fc"], help="SpeechNet points at which to grab embeddings")
+
     args = ap.parse_args()
 
     base_cfg = yaml.safe_load(args.base_config.read_text())
@@ -365,6 +393,13 @@ def main():
     
     # Propagate the loss plotting flag to internal trainers
     base_cfg["plot_loss"] = args.plot_loss
+
+    # Propagate explainability settings to internal trainers
+    base_cfg.setdefault("experiment", {})["explainability"] = {
+        "enabled": args.explain_embeddings,
+        "methods": args.explain_methods,
+        "layers": args.explain_layers,
+    }
 
     ft_cfg = None
     if "inter_session_ft" in args.experiment:

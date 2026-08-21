@@ -1,3 +1,9 @@
+# Copyright ETH Zurich 2026
+# Licensed under Apache v2.0 see LICENSE for details.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
 """
 Text mapper for CTC labels and token IDs.
 """
@@ -73,6 +79,10 @@ class CTCTextMapper(CTCTextTransform):
         if not self.lexicon_texts:
             raise ValueError("CTC lexicon is empty after loading.")
 
+        self.word_vocabulary = tuple(
+            sorted({word for text in self.lexicon_texts for word in text.split()})
+        )
+        
         super().__init__(
             vocab_texts=self.lexicon_texts,
             blank_id=self.blank_id,

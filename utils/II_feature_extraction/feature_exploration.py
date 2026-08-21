@@ -9,7 +9,7 @@ This script contains utils function to perfrom Exploratory Data Analysis on the 
 """
 
 import pandas as pd
-from typing import List, Optional, Union
+from typing import List, Union
 from pathlib import Path
 import re
 import sys
@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.II_feature_extraction.FeatExtractorManager import FeatureRegistry
-from utils.II_feature_extraction.UmapExtractor import (
+from utils.II_feature_extraction.ProjectionExtractor import (
     UMAP_Projection_Extractor,
     UMAPConfig,
     TSNE_Projection_Extractor,
@@ -34,7 +34,11 @@ from utils.I_data_preparation.experimental_config import (
 )
 
 
-# ============= USER_EDITABLE PART =============================================
+# ---------------------------------------------------------------------------
+# User-editable settings
+# ---------------------------------------------------------------------------
+
+
 sub_ids = ["S01", "S02", "S03"]  # add as many users as you want
 main_data_directory = Path(
     r"path/to/your/data"
@@ -52,7 +56,11 @@ extract_tsne = False
 consider_time_feats = True
 consider_freq_feats = True
 consider_wavelet_feats = True
-# ============= USER_EDITABLE PART =============================================
+
+
+# ---------------------------------------------------------------------------
+# Session feature analyzer
+# ---------------------------------------------------------------------------
 
 
 class Session_Feature_Analyzer:

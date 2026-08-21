@@ -37,6 +37,11 @@ from offline_experiments.general_utils import base_window_rows, check_data_direc
 from utils.general_utils import load_subjects_data, open_file
 
 
+# ---------------------------------------------------------------------------
+# Training setup
+# ---------------------------------------------------------------------------
+
+
 def build_bs_directory(model_base_folder: Path) -> Path:
     """Create a new subfolder bs_config_<N> under model_base_folder."""
     model_base_folder = Path(model_base_folder)
@@ -150,6 +155,11 @@ def return_batches_for_training(tfs_cfg: dict, df: pd.DataFrame) -> Tuple[List[i
         return [int(tfs_cfg["single_batch_id"])], None
 
     raise ValueError(f"Unknown batch_ft_scheme: {scheme}")
+
+
+# ---------------------------------------------------------------------------
+# Training driver
+# ---------------------------------------------------------------------------
 
 
 def run_train_from_scratch_for(
@@ -297,6 +307,11 @@ def run_train_from_scratch_for(
     return model_bs_folder
 
 
+# ---------------------------------------------------------------------------
+# Trainer wrapper
+# ---------------------------------------------------------------------------
+
+
 class TrainFromScratch_Model_Trainer:
     """Importable trainer compatible with scripts/30_run_experiments.py."""
 
@@ -320,6 +335,11 @@ class TrainFromScratch_Model_Trainer:
             model_cfg=self.model_cfg,
             tfs_cfg=self.tfs_cfg,
         )
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def main():
