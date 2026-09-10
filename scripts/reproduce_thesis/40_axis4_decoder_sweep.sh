@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -8,18 +8,15 @@
 # Axis 4: the decoder, swept once per surviving architecture
 # ==========================================================
 #
-# Reproduces: Table 4.7 and Table 6.2
-#
 # Because axis 3 carried both architectures forward, the sweep runs twice. It is
-# not two experiments but one axis settled separately for each survivor, and the
+# not two experiments but one axis determined separately for each survivor, and the
 # fact that the grid selects genuinely different operating points is itself the
 # evidence that the two models shape their posteriors differently.
 #
-# Nothing is retrained by the sweep: each model is trained once with the
-# log-probability dump enabled, and the whole grid is re-decoded offline from
-# that cache, so the acoustic model is held fixed and the decoder is the only
-# variable. The grid is scoped to one protocol at a time so that the global and
-# the inter-session caches are never pooled.
+# Each model is trained once with the log-probability dump enabled, and the whole 
+# grid is re-decoded offline from that saved outputs, so the acoustic model is held fixed 
+# and the decoder is the only variable. The grid is scoped to one protocol at a 
+# time so that the global and the inter-session saved outputs are never pooled.
 #
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 start_log "40_axis4_decoder_sweep"
@@ -40,7 +37,6 @@ for ARCH in bilstm transformer; do
     done
 done
 
-# The greedy figure against the sweep-selected beam, one row per cell.
 $PYTHON utils/III_results_analysis/aggregate_rest_sentence_results.py \
     --root "$ARTIFACTS_BASE/40_axis4_decoder_sweep" \
     --csv  "$ARTIFACTS_BASE/40_axis4_decoder_sweep/decoder_summary.csv" \

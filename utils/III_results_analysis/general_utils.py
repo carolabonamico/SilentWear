@@ -1,4 +1,5 @@
 # Copyright ETH Zurich 2026
+# Modified by: Carola Bonamico; Date: 10/09/2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -621,6 +622,7 @@ def build_save_path(base_save_path: Path, model_run_tag: str, suffix: str) -> Pa
 # ---------------------------------------------------------------------------
 # Multi-subject block layout
 # ---------------------------------------------------------------------------
+
 
 def build_multi_subject_blocks(
     ax: Axes,

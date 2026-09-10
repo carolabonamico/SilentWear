@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -71,7 +71,6 @@ class Session_Count_Ablation_Trainer:
         artifacts_n = self.main_model_dire / "session_count_ablation" / f"{self.n_sessions}_sess"
         cfg_run["data"]["models_main_directory"] = str(artifacts_n)
 
-        # Delegate setup to base trainers based on the specified experiment
         if self.current_exp == "global":
             trainer = Global_Model_Trainer(base_config=cfg_run, model_config=self.model_config)
         elif self.current_exp == "inter_session":
@@ -140,7 +139,6 @@ def main():
 
     print(f"\n[ABLATION] Running session-count ablation from {args.min_sessions} to {max_sessions_global} sessions.")
 
-    # Outer loop on n_sessions
     for n_sessions in range(args.min_sessions, max_sessions_global + 1):
         print(f"\n{'='*90}")
         print(f"[STARTING PHASE] -> {n_sessions} SESSION(S)")

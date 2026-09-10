@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -8,17 +8,8 @@
 # Axis 5: the window anchor
 # =========================
 #
-# Reproduces: Table 4.10 and Table 6.4
-#
 # Cue-anchored windows against trigger-free ones, run on the single
-# configuration the chain has left carrying the argument, namely the Transformer
-# on the STFT map under greedy decoding. The model is held fixed because the
-# comparison is between two datasets; the beam sweep is not repeated because
-# axis 4 has already shown the closed-set rule absorbs almost all of it.
-#
-# All three rows carry 20 references and no rest reference, since the
-# trigger-free extraction emits no rest window, so the cue-anchored row is a
-# rest-free run rather than the 21-class one of axis 3.
+# configuration with the Transformer on the STFT map under greedy decoding. 
 #
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 start_log "50_axis5_trigger_free"

@@ -1,38 +1,11 @@
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 
 """
-SpeechNetTransformer Architecture.
-
-Transformer variant of SpeechNet: the convolutional feature extractor is cloned
-verbatim, but the recurrent (BiLSTM) sequence model is replaced by a Transformer
-encoder. The Transformer hyper-parameters are chosen so that the encoder matches
-the parameter budget of the BiLSTM it replaces (~659k params).
-
-Optimisation note
----------------------------------------------------
-The encoder keeps its exact dimensions (``d_model``, ``nhead``, ``num_layers``,
-``dim_feedforward`` are unchanged), so the multiply-accumulate cost and the bulk
-of the parameter count are identical to the previous version. What changed are
-the *trainability* knobs that do not scale with those dimensions:
-
-* **Pre-norm residual blocks** (``norm_first=True``).
-* **GELU** activation in the feed-forward block instead of ReLU.
-* **Decoupled dropout**.
-* **Xavier initialisation** of the encoder's linear/projection weights.
-* Two ``LayerNorm``s are added: one on the CNN features entering the encoder and
-  one on the encoder output (the final-norm that pre-norm stacks require). These
-  are the only parameter change: +2*d_model params (+256 at d_model=128, i.e.
-  +0.03% of the model).
-
-Input:  (B, 1, C, T)                 if domain='time'
-        (B, C, N_MFCC, T_frames)     if domain='mfcc'
-        (B, C, Freq_bins, T_frames)  if domain='stft'
-Output: (B, output_classes)          if loss_name='cross_entropy'
-        (B, T_frames, output_classes) if loss_name='ctc'
+SpeechNetTransformer Architecture
 """
 
 import math
@@ -67,12 +40,20 @@ class SinusoidalPositionalEncoding(nn.Module):
 
 class SpeechNetTransformer(nn.Module):
     """
-    SpeechNet with a Transformer encoder instead of the BiLSTM.
+    SpeechNet with a Transformer encoder.
 
-    The convolutional stack, the (B, C, F, T) -> (B, T', C) reduction and the
-    final linear classifier are identical to SpeechNet; only the sequence model
-    differs. Both cross-entropy (pooled over time) and CTC (per-frame logits)
-    heads are supported, exactly like SpeechNet.
+    Input:  (B, 1, C, T)                 if domain='time' 
+            (B, C, N_MFCC, T_frames)     if domain='mfcc'
+            (B, C, Freq_bins, T_frames)  if domain='stft'
+    Output: (B, output_classes)          if loss_name='cross_entropy'
+            (B, T_frames, output_classes) if loss_name='ctc'
+    
+    blocks_config: list of blocks, each with:
+        out_channels: int
+        kernel: (k_c, k_t) where k_c can be int or "full"
+        pool:   (p_c, p_t)
+        stride: optional, default (1,1)
+        padding: optional, default (0,0)
     """
 
     def __init__(
@@ -110,7 +91,7 @@ class SpeechNetTransformer(nn.Module):
         if self.loss_name not in ["ctc", "cross_entropy"]:
             raise ValueError("loss_name must be either 'ctc' or 'cross_entropy'")
 
-        # ---- Input transform ----
+        # Input transform
         if self.domain == "mfcc":
             if mfcc_cfg is None:
                 raise ValueError("mfcc_cfg required when using domain='mfcc'")
@@ -133,7 +114,7 @@ class SpeechNetTransformer(nn.Module):
             self.time_mask = (T_audio.TimeMasking(time_mask_param=self.time_mask_param)
                               if self.time_mask_param > 0 else None)
 
-        # ---- Convolutional blocks ----
+        # Convolutional blocks
         if blocks_config is None:
             blocks_config = [
                 dict(out_channels=8, kernel=(1, 4), pool=(1, 2)),
@@ -181,7 +162,7 @@ class SpeechNetTransformer(nn.Module):
 
         self.dropout = nn.Dropout(p_dropout) if p_dropout > 0 else nn.Identity()
 
-        # ---- Transformer sequence model (replaces the BiLSTM) ----
+        # Transformer
         self.d_model = int(d_model)
         self.input_proj = (
             nn.Linear(in_ch, self.d_model) if in_ch != self.d_model else nn.Identity()
@@ -196,10 +177,8 @@ class SpeechNetTransformer(nn.Module):
             dropout=float(transformer_dropout),
             activation="gelu",
             batch_first=True,
-            norm_first=True,  # pre-norm: stable from-scratch optimisation
+            norm_first=True,
         )
-        # Pre-norm stacks need a final LayerNorm on the encoder output, otherwise
-        # the residual stream leaves the encoder un-normalised. +d_model params.
         self.transformer = nn.TransformerEncoder(
             encoder_layer,
             num_layers=num_layers,
@@ -210,11 +189,7 @@ class SpeechNetTransformer(nn.Module):
         self.fc = nn.Linear(self.d_model, output_classes)
 
     def _reset_encoder_parameters(self) -> None:
-        """Xavier-init the encoder's linear/projection weights.
-
-        Xavier-uniform on the 2-D weight matrices (biases zeroed, LayerNorm left
-        at its 1/0 default) trains more reliably. Parameter count is unchanged.
-        """
+        """Xavier-init the encoder's linear/projection weights."""
         for module in self.transformer.modules():
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
@@ -247,7 +222,7 @@ class SpeechNetTransformer(nn.Module):
         for block in self.blocks:
             x = block(x)
 
-        # (B, channels, Freq_remaining, T') -> (B, T', channels), same reduction as the BiLSTM head
+        # (B, channels, Freq_remaining, T') -> (B, T', channels)
         x_seq = x.mean(dim=2)
         x_seq = x_seq.permute(0, 2, 1)
 
@@ -259,9 +234,8 @@ class SpeechNetTransformer(nn.Module):
         x_seq = self.dropout(x_seq)
 
         if self.loss_name == "ctc":
-            # Per-frame logits for CTC
             return self.fc(x_seq)          # (B, T', output_classes)
 
-        # Cross-entropy: pool over time, then classify
+        # Cross-entropy
         x_pooled = x_seq.mean(dim=1)       # (B, d_model)
         return self.fc(x_pooled)           # (B, output_classes)

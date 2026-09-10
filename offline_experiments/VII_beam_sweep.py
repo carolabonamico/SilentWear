@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -12,26 +12,9 @@ Offline CTC prefix-beam-search parameter sweep.
 
 Why this exists
 ---------------
-Decode parameters do not affect training: the trained CTC acoustic model
-(its per-frame log-probs) is fixed, only the decoder changes. So retraining a
-model for every beam setting is pure waste. This tool instead sweeps decode
-parameters over **cached test-set log-probs**, dumped once during a normal run.
-
-It answers two things at once:
-  * why plain prefix beam search ~ greedy (run it with only ``--beam_widths`` and
-    watch the metrics not move), and
-  * which parameters recover the gap. The prefix beam search was extended
-    (models/ctc_decoding.py) with three scoring terms that make it diverge from
-    the argmax path on peaky CTC posteriors:
-      - ``temperature``    (T > 1 flattens the posteriors so alignments matter),
-      - ``blank_penalty``  (counters CTC's blank/deletion bias),
-      - ``length_bonus``   (word/insertion bonus, counters short-output bias).
-
-Both tasks are scored from the same dump:
-  * recognition  -> WER / CER (free-character decode, closed-set references),
-  * classification -> accuracy (decoded text mapped to the nearest lexicon label).
-Note: with ``lexicon_decision='score'`` the classification decision bypasses the
-free decode entirely, so it is decode-invariant and not covered here.
+Decode parameters do not affect training: the trained CTC model is fixed, only the 
+decoder changes. So this tool sweeps decode parameters over **saved test-set log-probs**, 
+dumped once during a normal run.
 
 Producing the dumps
 -------------------
@@ -83,13 +66,7 @@ DEFAULT_LENGTH_BONUSES=[0.0, 0.5, 1.0]
 
 
 class OfflineCTCMapper:
-    """Minimal token<->text mapper reconstructed from a dump's ``.meta.json``.
-
-    Mirrors the decode-relevant behaviour of CTCTextMapper: the exact
-    token-id -> character table (so decoding matches the trained model's output
-    ordering), CTC-collapsed text decoding, reference-text lookup, and the
-    nearest-lexicon-text classification mapping.
-    """
+    """Minimal token<->text mapper reconstructed from a dump's ``.meta.json``."""
 
     def __init__(self, meta: dict):
         self.blank_id = int(meta["blank_id"])
@@ -143,6 +120,8 @@ class OfflineCTCMapper:
 # ---------------------------------------------------------------------------
 # Dump loading
 # ---------------------------------------------------------------------------
+
+
 def _discover_dumps(paths: Sequence[Path]) -> List[Path]:
     """Expand files / directories / globs into a sorted list of *_logprobs.npz."""
     found: List[Path] = []
@@ -232,6 +211,8 @@ def _decode_index(args: Tuple[int, "DecodeCombo"]) -> List[int]:
 # ---------------------------------------------------------------------------
 # Sweep
 # ---------------------------------------------------------------------------
+
+
 class DecodeCombo:
     __slots__ = ("decode", "beam_width", "temperature", "blank_penalty", "length_bonus")
 
@@ -351,6 +332,8 @@ def run_sweep(seqs, labels, mapper, combos, allow_nearest, jobs) -> List[dict]:
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
+
+
 def write_csv(rows: List[dict], out_path: Path) -> None:
     import csv
 
@@ -392,8 +375,10 @@ def report(rows: List[dict], mapper: OfflineCTCMapper, top_n: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Entry point
 # ---------------------------------------------------------------------------
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dumps", nargs="+", type=Path, required=True,

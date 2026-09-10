@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -9,9 +9,7 @@
 # ==============================
 #
 # One unit of axis 4, the decoder. Trains once with the log-probability dump
-# enabled, then re-decodes the whole grid offline from that cache, so the
-# acoustic model is held fixed and the decoder is the only variable. The grid is
-# scoped to one protocol at a time so the two caches are never pooled.
+# enabled, then re-decodes the whole grid offline from that saving.
 #
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 start_log "40_axis4_transformer_recognition_sweep"

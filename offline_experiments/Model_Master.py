@@ -1,4 +1,5 @@
 # Copyright ETH Zurich 2026
+# Modified by: Carola Bonamico; Date: 10/09/2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -361,7 +362,7 @@ class Model_Master:
 
         self.model = build_model_from_spec(spec, ctx)
 
-        # move to device only for DL models
+        # Move to device only for DL models
         if isinstance(self.model, nn.Module):
             self.model.to(self.device)
 
@@ -390,8 +391,6 @@ class Model_Master:
                 beam_length_bonus = float(ctc_cfg.get("beam_length_bonus", 0.0))
                 label_smoothing = float(ctc_cfg.get("label_smoothing", 0.0))
                 if decoding == "recognition":
-                    # Free-character CTC: decode collapsed strings (greedy or
-                    # beam), score with WER/CER (closed-set references).
                     strategy = CTCRecognitionStrategy(
                         text_mapper,
                         decode_strategy=decode_strategy,
@@ -498,8 +497,7 @@ class Model_Master:
         """Return the .npz path to dump test log-probs to, or None if disabled.
 
         Enabled by ``model.kwargs.train_cfg.ctc.dump_logprobs: true`` in the model
-        config (DL + CTC only). The dump sits next to the fold checkpoint so
-        VII_beam_sweep.py can pick it up and sweep decode parameters offline.
+        config (DL + CTC only).
         """
         if self.kind != "dl" or save_model_path is None:
             return None

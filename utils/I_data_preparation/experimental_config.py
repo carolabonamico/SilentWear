@@ -1,4 +1,5 @@
 # Copyright ETH Zurich 2026
+# Modified by: Carola Bonamico; Date: 10/09/2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -16,6 +17,7 @@ FS = 500
 # Canonical dataset folder names
 # ---------------------------------------------------------------------------
 
+
 # These names must match the Hugging Face release layout documented in the README.
 # Every module that needs to read/write these folders must import these constants.
 RAW_DIRNAME = "raw"                                 # unfiltered .bio recordings (only present for self-collected data)
@@ -28,6 +30,7 @@ VOCALIZED_DIRNAME = "vocalized"
 # ---------------------------------------------------------------------------
 # Label mappings
 # ---------------------------------------------------------------------------
+
 
 ORIGINAL_LABELS_WORDS = {
     0: "rest",

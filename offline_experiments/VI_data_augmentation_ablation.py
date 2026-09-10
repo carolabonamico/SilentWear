@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -77,12 +77,7 @@ class Data_Augmentation_Ablation_Trainer:
         return window_value / 1000.0 if window_value > 10 else window_value
 
     def _ensure_combo_data_root(self, combo_root: Path) -> Path:
-        """Ensure the ablation workspace exposes the same folders the extractor expects.
-
-        The windower reads filtered recordings from ``data_raw_and_filt``; mirror it
-        (and the raw ``.bio`` folder when present) into the combo workspace so the
-        extractor finds the inputs.
-        """
+        """Ensure the ablation workspace exposes the same folders the extractor expects."""
         combo_root.mkdir(parents=True, exist_ok=True)
 
         # (folder_name, source, required)
@@ -104,9 +99,7 @@ class Data_Augmentation_Ablation_Trainer:
 
     def _run_windowing(self, combo_data_root: Path) -> bool:
         normalized_window_s = self._normalize_window_size_s(self.window_size_s)
-        
-        # Start from the base experiment config and merge the window-template fields
-        # that the extractor expects (feature_extraction, paths, save_wins_and_feats).
+
         cfg = deepcopy(self.base_cfg)
         template_cfg = deepcopy(self.base_cfg.get("experiment", {}).get("window_config_template", {}))
 
@@ -160,7 +153,7 @@ class Data_Augmentation_Ablation_Trainer:
             print(f"[SKIP] No windows generated for {self.run_label}.")
             return None
 
-        # 2. Build the artifacts directory path dynamically based on the ablation type and run label
+        # 2. Build the artifacts directory path based on the ablation type and run label
         artifacts_n = self.main_model_dire / self.ablation_folder_name / self.run_label / f"{self.n_sessions}_sess"
         artifacts_n.mkdir(parents=True, exist_ok=True)
         
@@ -169,7 +162,7 @@ class Data_Augmentation_Ablation_Trainer:
         cfg_run["data"]["models_main_directory"] = str(artifacts_n)
         cfg_run["data_augmentation"] = deepcopy(self.data_augmentation)
         
-        # 3. Delegate to the appropriate trainer for the actual training and evaluation
+        # 3. Delegate to the right trainer for the training and evaluation
         try:
             if self.current_exp == "global":
                 trainer = Global_Model_Trainer(base_config=cfg_run, model_config=self.model_cfg)
@@ -272,7 +265,7 @@ def main():
         print(f"[STARTING VARIANT] -> {run_label.upper()}")
         print(f"{'='*90}")
 
-        # Build a temporary trainer just to access _ensure_combo_data_root and _run_windowing.
+        # Build a temporary trainer to access _ensure_combo_data_root and _run_windowing.
         cfg_windowing_base = deepcopy(base_cfg)
         cfg_windowing_base["data"]["subject_id"] = args.subjects[0]
         cfg_windowing_base["condition"] = args.conditions[0]
@@ -283,7 +276,7 @@ def main():
             "experiment_type": "global",
             "data_augmentation": data_augmentation,
             "run_label": run_label,
-            "ablation_folder_name": ablation_folder_name,  # Pass the folder name dynamically
+            "ablation_folder_name": ablation_folder_name,
         }
 
         for window_s in args.aug_windows_s:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -386,7 +386,7 @@ def build_table(
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Entry point
 # ---------------------------------------------------------------------------
 
 def _detect_task(artifacts_dir: Path, experiment: str) -> str:

@@ -1,4 +1,4 @@
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -88,6 +88,8 @@ COND_TITLE = {"vocalized": "Vocalized", "silent": "Silent"}
 # ---------------------------------------------------------------------------
 # Data collection
 # ---------------------------------------------------------------------------
+
+
 def fold_mean(csv_path: Path) -> Optional[float]:
     """Mean of the ``balanced_accuracy`` column over the folds of one run."""
     vals: List[float] = []
@@ -144,6 +146,8 @@ def curve(
 # ---------------------------------------------------------------------------
 # Plot primitives
 # ---------------------------------------------------------------------------
+
+
 def plot_series(ax, xs, means, sems, color, label, linestyle="-", marker="o"):
     if not xs:
         return
@@ -173,6 +177,8 @@ def common_ylim(all_means, pad=3.0, floor=0.0, ceil=100.0):
 # ---------------------------------------------------------------------------
 # Figure 1: session-count ablation (protocol adequacy)
 # ---------------------------------------------------------------------------
+
+
 def fig_session_count(data, out_path: Path):
     series = [("vocalized", BLUE), ("silent", VERMILLION)]
     all_m = []
@@ -200,6 +206,8 @@ def fig_session_count(data, out_path: Path):
 # ---------------------------------------------------------------------------
 # Figures 2 & 3: augmentation hyper-parameter sweeps (2x2 small multiples)
 # ---------------------------------------------------------------------------
+
+
 def fig_sweep(data, variants, out_path: Path, title=None):
     """variants: list of (key, label, color)."""
     all_m = []
@@ -237,6 +245,8 @@ def fig_sweep(data, variants, out_path: Path, title=None):
 # ---------------------------------------------------------------------------
 # Figure 4: quantity vs quality (augmented solid vs original-size dashed)
 # ---------------------------------------------------------------------------
+
+
 def fig_quantity_quality(data_aug, data_orig, out_path: Path):
     strides = [("stride10_n2", "10 ms", ORANGE), ("stride20_n2", "20 ms", BLUE)]
     all_m = []
@@ -279,6 +289,8 @@ def fig_quantity_quality(data_aug, data_orig, out_path: Path):
 # ---------------------------------------------------------------------------
 # Text summary (the numbers that go into the tables)
 # ---------------------------------------------------------------------------
+
+
 def print_table(name, data, variants, at_session=6):
     print(f"\n===== {name} | balanced acc (%), mean over subjects @ {at_session} sessions =====")
     header = f"{'variant':16s} " + " ".join(f"{EXP_TITLE[e][:5]:>6s}/{c[:3]}" for e in EXPS for c in CONDS)

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -8,18 +8,9 @@
 # Ablation: sliding-window augmentation, augmented-size arm
 # =========================================================
 #
-# Fills: the \needed of Section 4.6.2, and completes Table 4.9.
-#
 # 60_ablations.sh runs this sweep under `original_size`, which resamples the
-# augmented pool back to the cardinality of the base split. That arm measures
-# what the PLACEMENT of the windows contributes, with their number held fixed,
-# and it comes out inert. This script runs the same grid under
-# `augmented_size`, where the training set is allowed to grow by up to 2N+1,
-# which is the only arm that can measure what the QUANTITY contributes.
-#
-# The two arms differ in one flag and in nothing else: same subjects, same
-# windows, same model, same folds. Their difference is the decomposition the
-# thesis reports.
+# augmented pool back to the cardinality of the base split. This script runs 
+# the same grid under `augmented_size`.
 #
 # Runtime: 12 sweep points x 6 session counts x 3 subjects x 2 conditions
 #          x 2 protocols, plus the shared baseline (skipped here, 60 has it).

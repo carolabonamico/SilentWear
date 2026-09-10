@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -14,7 +14,7 @@ Why this script exists
 ----------------------
 The per-subject input normalization of ``offline_experiments/general_utils.py``
 needs a scale per subject and per channel.
-Transforms need a robust bound, and this script measures where to put it from 
+Transforms need a bound, and this script measures where to put it from 
 the data rather than assuming a value. Point it at a windowed dataset and it
 answers three questions:
 
@@ -64,6 +64,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # Analysis parameters
 # ---------------------------------------------------------------------------
 
+
 CANDIDATE_PERCENTILES = [100.0, 99.9, 99.5, 99.0, 97.5, 95.0, 90.0]
 ARTEFACT_FACTOR = 10.0
 REQUIRED_MARGIN = 5.0
@@ -80,7 +81,7 @@ def discover_window_files(
     subjects: Optional[List[str]],
     conditions: Optional[List[str]],
 ) -> Dict[str, Dict[str, List[Path]]]:
-    """Map ``{subject: {condition: [h5 files]}}`` for the requested selection."""
+    """Build a map of ``{subject: {condition: [h5 files]}}`` for the requested selection."""
     root = data_dir / win_and_feats
     if not root.is_dir():
         raise FileNotFoundError(
@@ -104,12 +105,12 @@ def discover_window_files(
 
 
 def channel_columns(df: pd.DataFrame) -> List[str]:
-    """The filtered channel columns, i.e. what the deep models actually read."""
+    """Extract the filtered channel columns, i.e. what the deep models actually read."""
     return [c for c in df.columns if c.startswith("Ch_") and c.endswith("_filt")]
 
 
 def collect_stats(files_by_subject, percentiles: List[float]) -> pd.DataFrame:
-    """One row per subject/condition/session/channel with its amplitude scales."""
+    """Collect one row per subject/condition/session/channel with its amplitude scales."""
     rows = []
     for subject, per_cond in files_by_subject.items():
         for condition, files in per_cond.items():

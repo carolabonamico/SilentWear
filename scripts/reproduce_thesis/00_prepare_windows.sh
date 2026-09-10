@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -10,7 +10,7 @@
 #
 # Produces: the three windowed datasets every later script reads.
 #
-# Cue-anchored words at 1.4 s, cue-anchored sentences at 2.0 s, and the
+# Trigger-anchored words at 1.4 s, trigger-anchored sentences at 2.0 s, and the
 # trigger-free sentence windows, which the detector of Section 3.2 anchors on
 # the measured speech onset rather than on the cue.
 #

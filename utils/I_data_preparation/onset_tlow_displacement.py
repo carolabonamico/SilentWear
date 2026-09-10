@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
 
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 
 """
-Where the lower threshold puts the onset
-========================================
+Displacement report for the lower threshold
+===================================================================
 
-The detector carries two thresholds: ``t_high``
-confirms that an event is physiological, ``t_low`` decides where its onset is
-placed, by a backward search from the confirmation sample. The yield sweep shows
-that lowering ``t_low`` costs no false alarms, which is the stated reason for
-having two thresholds rather than one. What that sweep cannot show is the
-quantity the second threshold exists to move: how much earlier the onset lands.
+Measures where the lower threshold (``t_low``) puts the onset in the trigger-free
+onset detector. The detector carries two thresholds: ``t_high`` confirms that an
+event is physiological, while ``t_low`` decides where its onset is placed through a
+backward search from the confirmation sample. This script evaluates how much earlier
+the onset lands by varying ``t_low``.
 
-This script measures it. It runs the detector once per ``t_low_ratio``, keeps
-the first event of every cue box, and reports the displacement of that onset
-with respect to the adopted ratio, over the cue boxes both configurations cover.
-A negative displacement means the onset moved earlier, which is the intended
-direction: the window then opens closer to the true start of the articulation.
+The script runs the detector once per ``t_low_ratio``, keeps the first event of every
+cue box, and reports the displacement.
 
-Only the cue boxes covered by *both* configurations enter a comparison, so a
-ratio that loses utterances is not credited with moving the onsets it dropped.
-The count of such boxes is reported alongside, and it is what the figure has to
-be read against.
+Read the metrics as follows:
+
+* ``displacement`` — how much the onset moved with respect to the adopted ratio.
+  A negative displacement means the onset moved earlier, which means the window opens
+  closer to the true start of the articulation.
+* ``cue boxes covered`` — how many cue boxes are covered by both the tested ratio
+  and the adopted one. Only the cue boxes covered by *both* configurations enter a
+  comparison, so a ratio that loses utterances is not credited with moving the onsets
+  it dropped.
 
 Usage
 -----

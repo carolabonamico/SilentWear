@@ -1,4 +1,5 @@
 # Copyright ETH Zurich 2026
+# Modified by: Carola Bonamico; Date: 10/09/2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -300,15 +301,8 @@ def training_rows_with_augmentation(
 # ---------------------------------------------------------------------------
 
 
-# Key of the fallback statistics, computed over the whole training split. Used
-# for groups (subjects) that appear at test time but not in the training split.
 GLOBAL_NORM_KEY = "__global__"
-
-# Supported normalization methods (experiment.normalization_kind):
-# 'zscore' centre on the mean, scale by the standard deviation.
-# 'minmax' map a percentile range onto [-1, 1] and clip.
 NORMALIZATION_METHODS = ("zscore", "minmax")
-
 DEFAULT_NORM_PERCENTILE = 97.5
 
 
@@ -445,9 +439,6 @@ def apply_normalization_stats(
 ) -> pd.DataFrame:
     """Apply normalization statistics fitted on the training split.
 
-    The transform is read from the statistics themselves (their ``method`` key),
-    so a set of statistics can only ever be applied the way it was fitted.
-
     Returns a copy of ``df`` with ``cols`` normalized in place of the original
     values; every other column is left untouched.
     """
@@ -506,12 +497,7 @@ def normalize_datasets(
     percentile: float = DEFAULT_NORM_PERCENTILE,
     clip_sigma: float = 0.0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Dict[str, Dict[str, float]]]]:
-    """Normalize train/val/test using statistics fitted on the training split only.
-
-    See :func:`fit_normalization_stats` for the grouping semantics and for the
-    two available methods. Returns the three normalized splits plus the
-    statistics, so they can be saved next to the fold checkpoint.
-    """
+    """Normalize train/val/test using statistics fitted on the training split only."""
     stats = fit_normalization_stats(
         df_train, cols, kind=kind, group_col=group_col, method=method,
         percentile=percentile, clip_sigma=clip_sigma,
@@ -550,7 +536,7 @@ def apply_datasets_normalization(
     """Normalize the splits held by ``model_master`` when the config asks for it.
 
     Enabled by ``experiment.data_normalization: true`` in the base config. The
-    normalized columns are the ones the model actually consumes (channels for
+    normalized columns are the ones the model consumes (channels for
     DL runs, features for ML runs), normalized per subject and per column with
     statistics fitted on the training split. Two further keys select the
     transform:
@@ -563,9 +549,6 @@ def apply_datasets_normalization(
 
     ``utils/II_feature_extraction/amplitude_percentile_analysis.py`` measures the
     last two from a dataset.
-
-    Must be called before ``remap_all_datasets()``, which drops ``subject_id``
-    from the splits.
 
     Returns True when normalization was applied.
     """
@@ -617,10 +600,7 @@ def save_normalization_stats(
 
 
 def reset_all_seeds():
-    """
-    Resets all random seeds for PyTorch, NumPy, and Python's random module
-    to ensure deterministic behavior for experiments.
-    """
+    """Resets all random seeds for PyTorch, NumPy, and Python's random module."""
     torch.manual_seed(TORCH_MANUAL_SEED)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(TORCH_MANUAL_SEED)

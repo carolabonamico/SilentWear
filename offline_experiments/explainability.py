@@ -1,22 +1,18 @@
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 
 """
-Model explainability on learned embeddings (ported from the wulpus methodology).
+Model explainability on learned embeddings.
 
 For a trained model, this module:
-  1. grabs the activations (embeddings) of a named layer via forward hooks over a
+  1. grabs the activations of a named layer via forward hooks over a
      dataloader,
-  2. reduces them to 2D with UMAP / t-SNE / PCA for VISUALIZATION (trainval+test
-     together, coloured by class, marker by domain),
-  3. QUANTIFIES separability and train->test shift with a centroid-margin analysis
-     computed on the FULL embeddings (not on the 2D projection).
-
-It is applied to the `global` and `inter_session` experiments at two points of
-SpeechNet: before the BiLSTM (`pre_bilstm`) and before the fc layer (`pre_fc`).
+  2. reduces them to 2D with UMAP / t-SNE / PCA,
+  3. quantifies separability and train->test shift with a centroid-margin analysis
+     computed on the full embeddings.
 """
 
 from __future__ import annotations
@@ -31,27 +27,22 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from matplotlib.lines import Line2D
 
-# Friendly alias -> (module name, hook the layer INPUT instead of its output).
-# "before layer X" == the input to layer X, so we use forward-pre hooks here.
 LAYER_ALIASES: Dict[str, Tuple[str, bool]] = {
-    "pre_bilstm": ("rnn", True),          # input to the BiLSTM
-    "pre_transformer": ("transformer", True),  # input to the Transformer encoder
-    "pre_fc": ("fc", True),               # input to the final fully-connected layer
+    "pre_bilstm": ("rnn", True),                # input to the BiLSTM
+    "pre_transformer": ("transformer", True),   # input to the Transformer encoder
+    "pre_fc": ("fc", True),                     # input to the final fully-connected layer
 }
 
 
 # ---------------------------------------------------------------------------
 # Activation extraction (forward hooks)
 # ---------------------------------------------------------------------------
+
+
 def grab_layer_over_dataloader(
     model: torch.nn.Module, layer: str, loader, device: Optional[torch.device] = None
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Collect (activations, labels) for a layer over a dataloader.
-
-    `layer` is a friendly alias (see LAYER_ALIASES) or a raw module name; an
-    alias hooks the layer input ("before" the layer), a raw name hooks its output
-    (the wulpus default).
-    """
+    """Collect (activations, labels) for a layer over a dataloader."""
     model.eval()
     if device is None:
         device = next(model.parameters()).device
@@ -113,7 +104,6 @@ def project(X: np.ndarray, method: str, random_state: int = 42) -> np.ndarray:
     if method == "umap":
         import umap
         import warnings
-        # Ignora i warning generati da UMAP riguardo a n_jobs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
             reducer = umap.UMAP(
@@ -136,8 +126,10 @@ def project(X: np.ndarray, method: str, random_state: int = 42) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Quantitative separability (centroid-margin analysis, ported from wulpus)
+# Quantitative separability
 # ---------------------------------------------------------------------------
+
+
 def compute_centroid_margin_analysis(X: np.ndarray, y: np.ndarray, domains: np.ndarray) -> dict:
     """Centroids are built from trainval only; distances are measured for both
     domains. Returns per-sample margins and a summary dict.
@@ -185,8 +177,10 @@ def compute_centroid_margin_analysis(X: np.ndarray, y: np.ndarray, domains: np.n
 
 
 # ---------------------------------------------------------------------------
-# Plotting (ported from wulpus, simplified for one model / class labels)
+# Plotting
 # ---------------------------------------------------------------------------
+
+
 def _class_cmap(present_ids: List[int]):
     base = plt.get_cmap("tab10") if len(present_ids) <= 10 else plt.get_cmap("tab20")
     colors = [base(i % base.N) for i in range(len(present_ids))]
@@ -206,7 +200,6 @@ def plot_trainval_test_embeddings(
     y_idx = np.array([id_to_idx[int(v)] for v in y])
 
     fig, axs = plt.subplots(1, 2, figsize=(13, 6), sharex=True, sharey=True)
-    # Impostati pallini (marker="o") con stessa dimensione (15) per entrambi i domini
     for ax, (dom, marker, size) in zip(axs, [("trainval", "o", 15), ("test", "o", 15)]):
         mask = domains == dom
         ax.scatter(Z[mask, 0], Z[mask, 1], c=y_idx[mask], cmap=cmap, norm=norm,
@@ -220,12 +213,10 @@ def plot_trainval_test_embeddings(
                       markerfacecolor=colors[i], markeredgecolor="none",
                       label=id_to_name.get(c, str(c))) for i, c in enumerate(present_ids)]
     
-    # Legenda centrata in basso
     fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.5, 0.11), ncol=min(len(handles), 8),
                frameon=False, title="Classes")
     fig.suptitle(title)
     
-    # Layout aggiustato per riservare il 22% inferiore interamente alla legenda
     fig.tight_layout(rect=(0.0, 0.22, 1.0, 0.95))
     
     fig_save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -283,6 +274,8 @@ def plot_test_to_train_centroid_heatmap(
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
+
+
 def stratified_downsample(
     df: pd.DataFrame, max_samples: int, label_col: str = "Label_train",
     session_col: str = "session_id", random_state: int = 42,
@@ -308,7 +301,7 @@ def run_explainability_for_fold(
     layers: Sequence[str], methods: Sequence[str], max_trainval: int = 8000, max_test: int = 2000,
 ) -> None:
     """Extract layer embeddings, project them (UMAP/t-SNE/PCA), and quantify
-    separability via centroid-margin analysis. Mirrors the wulpus methodology.
+    separability via centroid-margin analysis.
     """
     if getattr(model_master, "kind", None) != "dl":
         return
@@ -343,7 +336,7 @@ def run_explainability_for_fold(
         y = labels.numpy().reshape(-1).astype(int)
         print(f"[EXPLAIN] layer '{layer}' embeddings: {X.shape}")
 
-        # Quantitative separability on the FULL embeddings.
+        # Quantitative separability on the full embeddings.
         analysis = compute_centroid_margin_analysis(X, y, domains)
         margin_rows.append({"layer": layer, "n_features": int(X.shape[1]), **analysis["summary"]})
         plot_test_to_train_centroid_heatmap(
