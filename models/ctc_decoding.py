@@ -1,26 +1,11 @@
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 
 """
-CTC decoding strategies, shared by the classification (lexicon) and
-recognition (free-character, WER/CER) paths.
-
-Two decoders operate on the pre-collapse per-frame log-probabilities:
-
-- Greedy (best-path): argmax per frame gives an alignment path (blanks and
-  repeats included); the CTC collapse (merge repeats, drop blanks) is then
-  applied as the final step.
-- Prefix beam search: standard label-synchronous CTC prefix beam search, no 
-  external language model. The collapse rule is built into the search: 
-  the beam holds already-collapsed prefixes and sums probability over all 
-  alignments that collapse to the same prefix, so it can recover strings that 
-  greedy misses.
-
-The alphabet here is tiny (a-z + space + blank = 28), so an exact expansion over
-all symbols per beam is cheap and no symbol pruning is needed.
+CTC decoding strategies
 """
 
 from __future__ import annotations
@@ -44,16 +29,7 @@ def _rescore_rows(
     temperature: float,
     blank_penalty: float,
 ) -> Sequence[Sequence[float]]:
-    """Apply temperature rescaling and a blank penalty to per-frame log-probs.
-
-    - temperature T: re-normalises each row as ``softmax(logits / T)``. T > 1 
-      flattens the peaky CTC posteriors.
-    - blank_penalty b: subtracts a constant from the blank log-prob so blank frames
-      are scored lower, countering CTC's blank/deletion bias. It is a heuristic
-      additive bias (rows are intentionally left un-renormalised afterwards).
-
-    Returns the input unchanged when both are no-ops (the default fast path).
-    """
+    """Apply temperature rescaling and a blank penalty to per-frame log-probs."""
     need_temp = temperature is not None and abs(temperature - 1.0) > 1e-9
     need_blank = abs(blank_penalty) > 1e-12
     if not need_temp and not need_blank:
@@ -99,7 +75,7 @@ def ctc_prefix_beam_search(
             CTC's bias towards short outputs. Default 0.0 is a no-op.
 
     Returns:
-        The most probable collapsed (blank/repeat-removed) token-id sequence.
+        The most probable collapsed token-id sequence.
     """
     T = len(log_probs)
     if T == 0:
@@ -113,9 +89,6 @@ def ctc_prefix_beam_search(
     def _score(entry, prefix_len: int) -> float:
         return _logsumexp(entry[0], entry[1]) + length_bonus * prefix_len
 
-    # prefix (tuple of token ids) -> [p_blank, p_nonblank] in log space.
-    # p_blank: prob of prefix with the last alignment step being a blank.
-    # p_nonblank: prob of prefix with the last alignment step being a real symbol.
     beams = {(): [0.0, NEG]}
 
     for t in range(T):
@@ -139,16 +112,11 @@ def ctc_prefix_beam_search(
                     continue
 
                 if c == blank_id:
-                    # Staying on the same prefix via a blank frame.
                     e = _get(prefix)
                     e[0] = _logsumexp(e[0], p_total + lp)
                     continue
 
                 if c == last:
-                    # Repeat of the last emitted symbol: extending the prefix
-                    # requires a separating blank, so it can only come from the
-                    # blank-ending mass; the non-blank-ending mass collapses back
-                    # onto the same prefix (a merged repeat).
                     e_new = _get(prefix + (c,))
                     e_new[1] = _logsumexp(e_new[1], p_b + lp)
                     e_same = _get(prefix)

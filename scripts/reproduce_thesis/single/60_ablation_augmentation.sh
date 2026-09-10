@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -8,7 +8,8 @@
 # 60 ablation augmentation
 # ========================
 #
-# Sweeps the sliding-window stride and the number of shifts per side against an un-augmented baseline. Each point of the sweep is one windowed dataset.
+# Sweeps the sliding-window stride and the number of shifts per side against an un-augmented baseline. 
+# Each point of the sweep is one windowed dataset.
 #
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 start_log "60_ablation_augmentation"

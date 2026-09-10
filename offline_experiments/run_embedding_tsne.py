@@ -1,4 +1,4 @@
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -7,9 +7,8 @@
 """Dump the learned embeddings of an already trained fold, and project them.
 
 The explainability hooks in ``offline_experiments/explainability.py`` run inside
-the training loop, which means asking for a projection of a finished run would
-otherwise require retraining it. This script reconstructs a fold from what the
-run already wrote to disk and never trains anything:
+the training loop, while this script reconstructs a fold from what the
+run already wrote to disk:
 
 * ``run_cfg.json`` gives the base and model configuration of the run;
 * ``cv_summary.csv`` gives the exact row indices of the train, validation and
@@ -17,19 +16,19 @@ run already wrote to disk and never trains anything:
 * ``<cv_mode>_fold_<k>.pt`` gives the weights.
 
 The windows are reloaded from the dataset the run used, the splits are rebuilt
-by index, the checkpoint is loaded into a freshly built model, and the
+by index, the checkpoint is loaded into a new model, and the
 activations of the requested layers are collected over train+val and test.
 
-Two products are written under ``--out_dir``:
+Two files are written under ``--out_dir``:
 
 * ``embeddings_<layer>.npz`` with the full-dimensional activations, the class
   ids, the class names and the domain (trainval / test) of every sample. The
   thesis figures are drawn from these, so restyling a figure never re-runs a
   model;
 * the PNG projections and the centroid-margin summary of
-  ``run_explainability_for_fold``, for a quick look.
+  ``run_explainability_for_fold``.
 
-Example (best model of the thesis, Transformer encoder, global CV, vocalized):
+Example (model with Transformer encoder, global CV, vocalized condition):
 
     python3 offline_experiments/run_embedding_tsne.py \
         --run_dir artifacts_thesis/30_axis3_sequence_stage/transformer_classification/models/global/S01/vocalized/speechnet_transformer/w2000ms/model_1 \

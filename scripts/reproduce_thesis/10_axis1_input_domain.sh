@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -8,17 +8,15 @@
 # Axis 1: the input domain
 # ========================
 #
-# Reproduces: Table 4.4 and Table 4.5
-#
-# Settles the front-end and carries the STFT map forward. The four domains are
-# crossed with the two sequence stages on all seven participants and on both
-# label sets. Every run decodes greedily: the decoder is axis 4, and comparing
-# front-ends under a search that has not been chosen would confound the two.
+# The four domains are crossed with the two sequence stages on all seven 
+# participants and on both label sets. Every run decodes greedily: the decoder
+# is axis 4, and comparing input representations under a search that has not been chosen 
+# would confound the two.
 #
 # The mel cepstrum is measured here at both parameterizations, the audio one at
 # 64 filters and 40 coefficients and the one refitted to the EMG bandwidth at 15
 # and 10, on the same participants and under the same objective as every other
-# domain, so that the front-end question is closed by this script on one footing
+# domain, so that the input representation question is closed by this script on one footing
 # and never reopened later in the chain.
 #
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"

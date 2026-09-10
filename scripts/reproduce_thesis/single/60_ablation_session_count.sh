@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -8,7 +8,8 @@
 # 60 ablation session count
 # =========================
 #
-# Retrains on the first 1 to 6 sessions of each participant. Not an axis of the chain: it varies what the training split contains, not what the network is.
+# Retrains on the first 1 to 6 sessions of each participant. Not an axis of the chain: 
+# it varies what the training split contains, not what the network is.
 #
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 start_log "60_ablation_session_count"

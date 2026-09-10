@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 
 """
-Report for the trigger-free onset detector?
+Report for the trigger-free onset detector
 ===================================================================
 
 Scores ``utils/I_data_preparation/onset_detection.py`` against the trigger boxes
@@ -97,7 +97,7 @@ def discover(data_dir: Path, processed: str, subjects, conditions) -> List[Path]
 
 
 def print_binary_block(table: pd.DataFrame) -> None:
-    """The detector read as a binary speech-against-rest classifier.
+    """Print the detector evaluation as a binary speech-against-rest classifier.
 
     The 2x2 tables are pooled over the recordings and the rates derived from the
     pooled counts, so a short recording does not weigh as much as a long one.

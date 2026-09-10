@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -8,12 +8,7 @@
 # Axis 2: the training objective
 # ==============================
 #
-# Reproduces: Table 4.4, CTC rows
-#
-# Cross-entropy against CTC on the front-end axis 1 selected. Cross-entropy
-# leaves the study here, and it leaves for a reason stronger than its accuracy:
-# it emits no per-frame posterior and therefore cannot produce a character
-# string at all, which is what the whole of Chapter 6 requires.
+# CE against CTC on the input representation axis 1 selected.
 #
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 start_log "20_axis2_objective"

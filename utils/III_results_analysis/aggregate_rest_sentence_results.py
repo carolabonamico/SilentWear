@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -8,7 +8,8 @@
 
 """Aggregate the sentence results into the summary table the report quotes.
 
-Run:  python3 utils/III_results_analysis/aggregate_rest_sentence_results.py
+Usage:  
+      python3 utils/III_results_analysis/aggregate_rest_sentence_results.py
       python3 ... --root artifacts_beam_sweep_no_rest
       python3 ... --csv rest_sentence_results.csv
       python3 ... --window w2400ms

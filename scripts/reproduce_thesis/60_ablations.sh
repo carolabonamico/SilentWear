@@ -1,21 +1,12 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 # Ablations on the training data, and the pooled models
 # =====================================================
-#
-# Reproduces: Figure 4.9, Figure 4.10 and Table 4.9
-#
-# These are not axes of the chain. They vary what the training split contains
-# rather than what the network is, so they are reported after the chain has
-# closed and they change none of its decisions. The two data ablations are run
-# on the word subset, which is the smaller and better characterized task, and on
-# the three participants (S01, S03, S04) for which every session is available;
-# the pooled runs use all seven on the sentence corpus.
 #
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 start_log "60_ablations"

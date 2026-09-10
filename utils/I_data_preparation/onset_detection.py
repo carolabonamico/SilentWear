@@ -1,4 +1,4 @@
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -99,13 +99,13 @@ class Baseline:
     first_valid_block: int
 
     def blocks(self) -> Iterator[Tuple[int, int, int]]:
-        """``(block, start, stop)`` sample span of every block past the warm-up."""
+        """Yield the ``(block, start, stop)`` sample span of every block past the warm-up."""
         for b in range(self.first_valid_block, self.lo.shape[0]):
             start = b * self.block_samples
             yield b, start, min(start + self.block_samples, self.n_samples)
 
     def expand(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Per-sample ``(LO, HI)`` arrays, for plotting and debugging.
+        """Expand into per-sample ``(LO, HI)`` arrays, for plotting and debugging.
 
         This is the representation the detector used to carry around.
         """
@@ -132,7 +132,7 @@ class SpeechEvent:
 
 
 def causal_envelope(X: np.ndarray, cfg: OnsetConfig) -> np.ndarray:
-    """Rectified signal smoothed by a causal moving average.
+    """Compute the rectified signal smoothed by a causal moving average.
 
     ``out[n]`` averages ``|X|`` over ``[n - w + 1, n]``
     """
@@ -146,13 +146,7 @@ def causal_envelope(X: np.ndarray, cfg: OnsetConfig) -> np.ndarray:
 
 
 def causal_baseline(E: np.ndarray, cfg: OnsetConfig) -> Baseline:
-    """``(low, high)`` percentiles of the envelope over past samples only.
-
-    The estimate is refreshed every ``baseline_update_s`` from the preceding
-    ``baseline_window_s`` of (decimated) envelope and held constant in between. 
-    Samples before ``warmup_s`` of history is available have no baseline and 
-    are never detected on.
-    """
+    """Calculate the ``(low, high)`` percentiles of the envelope over past samples only."""
     n, n_ch = E.shape
     decim = max(1, int(round(cfg.fs / cfg.baseline_decim_hz)))
     E_dec = E[::decim]
@@ -178,7 +172,7 @@ def causal_baseline(E: np.ndarray, cfg: OnsetConfig) -> Baseline:
 
 
 def compute_activity(X: np.ndarray, cfg: Optional[OnsetConfig] = None) -> np.ndarray:
-    """Dimensionless activity trace the thresholds are applied to.
+    """Compute the dimensionless activity trace the thresholds are applied to.
 
     Parameters
     ----------
@@ -199,8 +193,7 @@ def compute_activity(X: np.ndarray, cfg: Optional[OnsetConfig] = None) -> np.nda
         lo = base.lo[b]
         scale = np.maximum(base.hi[b] - lo, 1e-12)
         Z = (E[start:stop] - lo) / scale
-        # Per-sample top-k across channels: follows the active electrodes without
-        # ever selecting a fixed subset.
+        # Per-sample top-k across channels.
         part = np.partition(Z, -topk, axis=1)[:, -topk:]
         activity[start:stop] = part.mean(axis=1)
     return np.nan_to_num(activity, nan=0.0, posinf=0.0, neginf=0.0)
@@ -212,13 +205,7 @@ def compute_activity(X: np.ndarray, cfg: Optional[OnsetConfig] = None) -> np.nda
 
 
 def detect_events(activity: np.ndarray, cfg: Optional[OnsetConfig] = None) -> List[SpeechEvent]:
-    """Dual-threshold state machine over the activity trace.
-
-    A run above ``t_low`` becomes an event only if it reaches ``t_high``; the
-    onset is the run's start, bounded to ``max_backtrack_s`` before the
-    confirming sample. Runs separated by less than ``merge_gap_s`` are one event, 
-    and events shorter than ``min_duration_s`` are dropped.
-    """
+    """Run a dual-threshold state machine over the activity trace."""
     cfg = cfg or OnsetConfig()
     t_high, t_low = cfg.t_high, cfg.t_low
 
@@ -265,7 +252,7 @@ def detect_events(activity: np.ndarray, cfg: Optional[OnsetConfig] = None) -> Li
 def detect_speech_events(
     X: np.ndarray, cfg: Optional[OnsetConfig] = None
 ) -> List[SpeechEvent]:
-    """Wrapper: filtered channels in, speech intervals out."""
+    """Detect speech intervals from filtered channels."""
     cfg = cfg or OnsetConfig()
     return detect_events(compute_activity(X, cfg), cfg)
 
@@ -276,18 +263,14 @@ def detect_speech_events(
 
 
 def filtered_channel_columns(df: pd.DataFrame) -> List[str]:
-    """Filtered channel columns, i.e. what the models consume."""
+    """Extract filtered channel columns, i.e. what the models consume."""
     return [c for c in df.columns if c.startswith("Ch_") and c.endswith("_filt")]
 
 
 def detect_events_in_dataframe(
     df: pd.DataFrame, cfg: Optional[OnsetConfig] = None
 ) -> List[SpeechEvent]:
-    """Run the detector on a processed recording.
-
-    The returned indices are positions in ``df``; callers that kept a
-    non-positional index must reset it first.
-    """
+    """Run the detector on a processed recording."""
     cols = filtered_channel_columns(df)
     if not cols:
         raise ValueError("No filtered channel columns (Ch_*_filt) in the DataFrame.")
@@ -295,11 +278,7 @@ def detect_events_in_dataframe(
 
 
 def label_boxes(df: pd.DataFrame, label_col: str = "Label_int") -> List[Tuple[int, int, int]]:
-    """Contiguous non-rest trigger runs as ``(start, stop, label_int)``.
-
-    Used only to attach a transcription to an already-detected event, and to
-    score the detector. The detection itself never sees these.
-    """
+    """Extract contiguous non-rest trigger runs as ``(start, stop, label_int)``."""
     lab = df[label_col].to_numpy()
     if lab.size == 0:
         return []
@@ -317,7 +296,7 @@ def match_events_to_boxes(
     tolerance_s: float = OnsetConfig.match_tolerance_s,
     fs: int = FS,
 ) -> List[Optional[int]]:
-    """For each event, the index of the trigger box it belongs to (or ``None``).
+    """Find for each event the index of the trigger box it belongs to (or ``None``).
 
     An event matches the box whose span contains its onset, allowing the onset to
     anticipate the cue by ``tolerance_s``.
@@ -337,7 +316,7 @@ def match_events_to_boxes(
 def rest_intervals_between_events(
     events: Sequence[SpeechEvent], n_samples: int, min_gap_samples: int
 ) -> List[Tuple[int, int]]:
-    """Gaps between detected events that are long enough to host a rest window."""
+    """Find gaps between detected events that are long enough to host a rest window."""
     gaps: List[Tuple[int, int]] = []
     cursor = 0
     for ev in events:
@@ -352,7 +331,7 @@ def rest_intervals_between_events(
 def rest_spans_from_boxes(
     boxes: Sequence[Tuple[int, int, int]], n_samples: int
 ) -> List[Tuple[int, int]]:
-    """The complement of the cue boxes, i.e. the rest spans of the recording."""
+    """Compute the complement of the cue boxes, i.e. the rest spans of the recording."""
     spans: List[Tuple[int, int]] = []
     cursor = 0
     for bs, be, _ in boxes:
@@ -365,7 +344,7 @@ def rest_spans_from_boxes(
 
 
 def binary_rates_from_counts(tp: int, fp: int, fn: int, tn: int) -> dict:
-    """Precision, recall and the rest of the rates a 2x2 table defines."""
+    """Calculate precision, recall and the rest of the rates a 2x2 table defines."""
     div = lambda a, b: float(a) / b if b else float("nan")
     recall = div(tp, tp + fn)
     specificity = div(tn, tn + fp)
@@ -387,7 +366,7 @@ def binary_rates_from_counts(tp: int, fp: int, fn: int, tn: int) -> dict:
 
 
 def _binary_rates(tp: int, fp: int, fn: int, tn: int, prefix: str) -> dict:
-    """:func:`binary_rates_from_counts` under a key prefix."""
+    """Compute :func:`binary_rates_from_counts` under a key prefix."""
     return {f"{prefix}_{k}": v for k, v in binary_rates_from_counts(tp, fp, fn, tn).items()}
 
 
@@ -442,7 +421,7 @@ def score_against_trigger(
     tolerance_s: float = OnsetConfig.match_tolerance_s,
     fs: int = FS,
 ) -> dict:
-    """Evaluate the detector against the trigger boxes (evaluation only).
+    """Evaluate the detector against the trigger boxes.
 
     ``n_detected`` cue boxes out of ``n_boxes`` received at least one onset;
     ``detection_rate`` is their ratio. ``false_alarms`` counts detected events

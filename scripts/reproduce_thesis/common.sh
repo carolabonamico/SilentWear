@@ -1,26 +1,12 @@
 #!/bin/bash
 #
-# Copyright ETH Zurich 2026
+# Copyright Carola Bonamico 2026
 # Licensed under Apache v2.0 see LICENSE for details.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 # Shared settings and helpers for the thesis reproduction scripts.
 # ================================================================
-#
-# The scripts are numbered by the axis of the decision chain they settle
-# (Section 4.1 of the thesis): each one holds every earlier axis at the value
-# its predecessor selected, so running them out of order reproduces a
-# configuration the thesis does not report.
-#
-# Sourced by every script under scripts/reproduce_thesis/. It fixes the
-# data directories, the participant and condition lists and the artefact root,
-# and provides four helpers that wrap the two pipeline entry points:
-#
-#   train_and_analyse   train + build tables, for both protocols
-#   train_only          train alone, for the runs whose tables come from a sweep
-#   beam_sweep          offline re-decoding of cached log-probabilities
-#   beam_tables         per-subject tables at the sweep-selected beam config
 #
 # Every configuration referenced here lives under config_thesis/, which is the
 # published configuration folder of the thesis; see config_thesis/README.md.
@@ -44,20 +30,20 @@ if [ ! -x "$PYTHON" ]; then
     PYTHON="python3"
 fi
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Corpora
-# --------------------------------------------------------------------------- #
-# The sentence corpus of this thesis: 7 participants, 6 sessions, 20 sentences.
+# ---------------------------------------------------------------------------
+
+
 DATA_SENTENCES="${DATA_SENTENCES:-data_sentences}"
-# The word corpus of this thesis: 15 words + rest. The directory name records
-# the subject count of the first extraction and is not authoritative.
 DATA_WORDS="${DATA_WORDS:-data_words}"
-# The published SilentWear corpus, for the baseline reproduction of Section 4.2.
 DATA_WORDS_PUBLISHED="${DATA_WORDS_PUBLISHED:-/baltic/users/ml_datasets/iis_bio_internal_datasets/2026_spacone_speech_classification_hmi}"
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Scope
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 SUBJECTS="${SUBJECTS:-S01 S02 S03 S04 S05 S06 S07}"
 CONDITIONS="${CONDITIONS:-silent vocalized}"
 EXPERIMENTS="${EXPERIMENTS:-global inter_session}"
@@ -65,22 +51,20 @@ ARTIFACTS_BASE="${ARTIFACTS_BASE:-artifacts_thesis}"
 JOBS="${JOBS:-8}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
 
-# The three-participant subset used by the preliminary domain sweep of
-# Section 4.3 and by the two ablations of Section 4.6.
 SUBJECTS_3="${SUBJECTS_3:-S01 S03 S04}"
-# The four participants of the published corpus.
 SUBJECTS_4="${SUBJECTS_4:-S01 S02 S03 S04}"
 
-# Offline beam-search grid (docs/sweep_prefix_beam_search.md, sec. 5).
 BEAM_WIDTHS="${BEAM_WIDTHS:-1 5 10 25}"
 TEMPERATURES="${TEMPERATURES:-1.0 1.3 1.6 2.0}"
 BLANK_PENALTIES="${BLANK_PENALTIES:-0.0 1.0 2.0 4.0}"
 LENGTH_BONUSES="${LENGTH_BONUSES:-0.0 0.5 1.0 2.0}"
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Logging
-# --------------------------------------------------------------------------- #
-start_log() {   # $1 = short run name
+# ---------------------------------------------------------------------------
+
+
+start_log() {
     mkdir -p "$ARTIFACTS_BASE/logs"
     local log="$ARTIFACTS_BASE/logs/$1_$(date +%Y%m%d_%H%M%S).log"
     exec > >(tee -a "$log") 2>&1
@@ -95,15 +79,14 @@ banner() {
     echo "--- $* ---"
 }
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Pipeline wrappers
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+
+
 # train  <base_cfg> <model_cfg> <data_dir> <artifacts_root> <experiment>
 #        <window_id_seconds> [extra args...]
 #
-# The inter-session protocol overrides the window length, so the value is passed
-# explicitly and must match the window the global run used, otherwise the two
-# sets of artefacts are not comparable.
 train() {
     local base_cfg="$1" model_cfg="$2" data_dir="$3" root="$4" exp="$5" win_s="$6"
     shift 6
@@ -155,10 +138,6 @@ train_and_analyse() {
 }
 
 # beam_sweep  <artifacts_root> <experiment>
-#
-# Re-decodes the cached per-frame log-probabilities over the whole grid without
-# retraining. --dumps is scoped to models/<experiment> so that the global and
-# inter-session caches are never pooled.
 beam_sweep() {
     local root="$1" exp="$2"
     banner "offline beam sweep | $exp | $root"
